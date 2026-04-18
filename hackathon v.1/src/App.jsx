@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/clerk-react";
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
@@ -7,7 +8,6 @@ function loadGoogleMaps(callback) {
     callback();
     return;
   }
-  // Avoid injecting the script twice
   if (document.querySelector('#gmaps-script')) {
     document.querySelector('#gmaps-script').addEventListener('load', callback);
     return;
@@ -67,7 +67,6 @@ const App = () => {
             if (geocoderStatus === 'OK' && results[0]) {
               const address = results[0].formatted_address;
               setLocation({ address, lat: latitude, lng: longitude });
-              // Sync the visible input text
               if (inputRef.current) inputRef.current.value = address;
               setStatus('');
             } else {
@@ -82,22 +81,41 @@ const App = () => {
 
   return (
     <div>
-      <input
-        ref={inputRef}
-        type="text"
-        placeholder="Enter your address"
-      />
-      <button onClick={handleLocateMe}>Locate Me</button>
+      {/* AUTH HEADER */}
+      <header style={{ display: 'flex', justifyContent: 'space-between', padding: '15px 30px', borderBottom: '1px solid #ccc', marginBottom: '20px' }}>
+        <h1 style={{ margin: 0, fontSize: '24px' }}>Med Map</h1>
+        <div>
+          <SignedOut>
+            <SignInButton mode="modal">
+              <button style={{ padding: '8px 16px', cursor: 'pointer' }}>Sign In</button>
+            </SignInButton>
+          </SignedOut>
+          <SignedIn>
+            <UserButton />
+          </SignedIn>
+        </div>
+      </header>
 
-      {status && <p>{status}</p>}
+      {/* MAP CONTROLS */}
+      <div style={{ padding: '0 30px' }}>
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Enter your address"
+          style={{ padding: '8px', marginRight: '10px', width: '300px' }}
+        />
+        <button onClick={handleLocateMe} style={{ padding: '8px 16px' }}>Locate Me</button>
 
-      {location.lat !== null && (
-        <p>
-          <strong>Selected:</strong> {location.address}
-          <br />
-          <strong>Coordinates:</strong> {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
-        </p>
-      )}
+        {status && <p>{status}</p>}
+
+        {location.lat !== null && (
+          <p style={{ marginTop: '20px' }}>
+            <strong>Selected:</strong> {location.address}
+            <br />
+            <strong>Coordinates:</strong> {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
+          </p>
+        )}
+      </div>
     </div>
   );
 };
