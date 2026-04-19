@@ -1,32 +1,57 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SignedIn, SignedOut } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, useUser } from '@clerk/clerk-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
 import AuthHeader from '../Components/AuthHeader';
+import { supabase } from '../Supabase';
 
 const TEAL = '#0f766e';
 const AMBER = '#f59e0b';
-const STORAGE_KEY = 'medmap_health_profile';
-const PROFILE_ID_KEY = 'medmap_profile_id';
 const PIN_KEY = 'medmap_health_pin';
-
-const generateId = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-};
 
 const EMPTY_PROFILE = {
   firstName: '', lastName: '',
   bloodType: '', allergies: '', conditions: '',
-  pastProcedures: '',
-  medications: '',
+  pastProcedures: '', medications: '',
+  currentSymptoms: '',
   emergencyName: '', emergencyPhone: '', emergencyEmail: '',
   insuranceProvider: '', insurancePolicy: '',
 };
+
+const toRow = (p, userId) => ({
+  user_id: userId,
+  first_name: p.firstName,
+  last_name: p.lastName,
+  blood_type: p.bloodType,
+  allergies: p.allergies,
+  conditions: p.conditions,
+  past_procedures: p.pastProcedures,
+  medications: p.medications,
+  current_symptoms: p.currentSymptoms,
+  emergency_name: p.emergencyName,
+  emergency_phone: p.emergencyPhone,
+  emergency_email: p.emergencyEmail,
+  insurance_provider: p.insuranceProvider,
+  insurance_policy: p.insurancePolicy,
+  updated_at: new Date().toISOString(),
+});
+
+const fromRow = (row) => ({
+  firstName: row.first_name || '',
+  lastName: row.last_name || '',
+  bloodType: row.blood_type || '',
+  allergies: row.allergies || '',
+  conditions: row.conditions || '',
+  pastProcedures: row.past_procedures || '',
+  medications: row.medications || '',
+  currentSymptoms: row.current_symptoms || '',
+  emergencyName: row.emergency_name || '',
+  emergencyPhone: row.emergency_phone || '',
+  emergencyEmail: row.emergency_email || '',
+  insuranceProvider: row.insurance_provider || '',
+  insurancePolicy: row.insurance_policy || '',
+});
 
 // ── Small reusable pieces ─────────────────────────────────────────────────────
 
@@ -166,8 +191,9 @@ const PinModal = ({ mode, onConfirm, onCancel, error }) => {
 
 const HealthProfile = () => {
   const navigate = useNavigate();
+  const { user, isLoaded } = useUser();
   const [profile, setProfile] = useState(EMPTY_PROFILE);
-  const [profileId, setProfileId] = useState('');
+  const [loading, setLoading] = useState(true);
   const [requirePin, setRequirePin] = useState(false);
   const [storedPin, setStoredPin] = useState('');
   const [unlocked, setUnlocked] = useState(false);
@@ -175,37 +201,29 @@ const HealthProfile = () => {
   const [showPinEntry, setShowPinEntry] = useState(false);
   const [pinError, setPinError] = useState('');
   const [savedIndicator, setSavedIndicator] = useState(false);
+  const [targetLang, setTargetLang] = useState('');
+  const [translatedText, setTranslatedText] = useState('');
+  const [translating, setTranslating] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
   const saveTimer = useRef(null);
+  const translationCache = useRef({});
 
-  // ── Load from localStorage ──
+  // ── Load from Supabase ──
   useEffect(() => {
-    let id = localStorage.getItem(PROFILE_ID_KEY);
-    if (!id) {
-      id = generateId();
-      localStorage.setItem(PROFILE_ID_KEY, id);
-      console.log('Generated new profile ID:', id);
-    } else {
-      console.log('Loaded existing profile ID:', id);
-    }
-    setProfileId(id);
+    if (!isLoaded || !user) return;
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('health_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+      if (data && !error) {
+        setProfile(fromRow(data));
+      }
+      setLoading(false);
+    };
+    load();
 
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const profileData = JSON.parse(raw);
-        setProfile(profileData);
-        console.log('Loaded profile data:', profileData);
-        // Immediately migrate existing profile to ID-based storage
-        localStorage.setItem(`medmap_profile_${id}`, raw);
-        console.log('Saved profile to ID-based storage:', `medmap_profile_${id}`);
-      } catch (_) { /* ignore */ }
-    } else {
-      // Initialize with empty profile and save it
-      console.log('No existing profile, initializing empty profile');
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(EMPTY_PROFILE));
-      localStorage.setItem(`medmap_profile_${id}`, JSON.stringify(EMPTY_PROFILE));
-    }
-    
     const pin = localStorage.getItem(PIN_KEY);
     if (pin) {
       setStoredPin(pin);
@@ -214,44 +232,170 @@ const HealthProfile = () => {
     } else {
       setUnlocked(true);
     }
-  }, []);
+  }, [isLoaded, user]);
 
-  // ── Auto-save on profile change ──
+  // ── Auto-save to Supabase ──
   const updateField = useCallback((field, value) => {
+    if (!user) return;
     setProfile(prev => {
       const next = { ...prev, [field]: value };
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        localStorage.setItem(`medmap_profile_${profileId}`, JSON.stringify(next));
-        console.log('Auto-saved profile to:', `medmap_profile_${profileId}`, next);
+      saveTimer.current = setTimeout(async () => {
+        await supabase
+          .from('health_profiles')
+          .upsert(toRow(next, user.id), { onConflict: 'user_id' });
         setSavedIndicator(true);
         setTimeout(() => setSavedIndicator(false), 2500);
       }, 700);
       return next;
     });
-  }, [profileId]);
+  }, [user]);
 
-  // ── Build QR URL with profile data embedded in hash ──
-  const qrValue = (() => {
-    if (!profileId) return 'Loading...';
-    const data = {
-      n: [profile.firstName, profile.lastName].filter(Boolean).join(' '),
-      b: profile.bloodType,
-      a: profile.allergies,
-      c: profile.conditions,
-      m: profile.medications,
-      p: profile.pastProcedures,
-      en: profile.emergencyName,
-      ep: profile.emergencyPhone,
-      ee: profile.emergencyEmail,
-      ip: profile.insuranceProvider,
-      ipo: profile.insurancePolicy,
-    };
-    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
-    const base = `${window.location.protocol}//${window.location.hostname}:${window.location.port}`;
-    return `${base}/health-profile/${profileId}#${encoded}`;
-  })();
+  // ── Build read-aloud summary for phone calls to hospitals/doctors ──
+  const buildSummary = (p) => {
+    const name = [p.firstName, p.lastName].filter(Boolean).join(' ');
+    if (!name && !p.bloodType && !p.conditions && !p.currentSymptoms) return '';
+
+    const lines = [];
+
+    // Opening
+    lines.push(
+      `Hello, I am calling regarding a patient${name ? ` named ${name}` : ''}.`
+    );
+
+    // Blood type & allergies
+    if (p.bloodType || p.allergies) {
+      const bt = p.bloodType ? `Their blood type is ${p.bloodType}.` : '';
+      const al = p.allergies
+        ? `They have known allergies to ${p.allergies}.`
+        : 'No known allergies.';
+      lines.push([bt, al].filter(Boolean).join(' '));
+    }
+
+    // Current symptoms — most urgent, said early
+    if (p.currentSymptoms) {
+      lines.push(
+        `The patient is currently experiencing the following symptoms: ${p.currentSymptoms}.`
+      );
+    }
+
+    // Medical conditions
+    if (p.conditions) {
+      lines.push(`Their medical history includes: ${p.conditions}.`);
+    }
+
+    // Medications
+    if (p.medications) {
+      lines.push(`They are currently taking: ${p.medications}.`);
+    }
+
+    // Past procedures
+    if (p.pastProcedures) {
+      lines.push(`Past procedures include: ${p.pastProcedures}.`);
+    }
+
+    // Insurance
+    if (p.insuranceProvider || p.insurancePolicy) {
+      const ins = [
+        p.insuranceProvider && `provider is ${p.insuranceProvider}`,
+        p.insurancePolicy && `policy number ${p.insurancePolicy}`,
+      ].filter(Boolean).join(', ');
+      lines.push(`Insurance ${ins}.`);
+    }
+
+    // Emergency contact — closing
+    if (p.emergencyName || p.emergencyPhone) {
+      const ec = [p.emergencyName, p.emergencyPhone].filter(Boolean).join(', reachable at ');
+      lines.push(
+        `The emergency contact is ${ec}. Please reach out to them as soon as possible.`
+      );
+    }
+
+    lines.push('Thank you.');
+    return lines.join('\n\n');
+  };
+
+  const LANGUAGES = [
+    { code: 'es', label: 'Spanish', voice: 'es-ES' },
+    { code: 'fr', label: 'French', voice: 'fr-FR' },
+    { code: 'zh', label: 'Chinese', voice: 'zh-CN' },
+    { code: 'ar', label: 'Arabic', voice: 'ar-SA' },
+    { code: 'hi', label: 'Hindi', voice: 'hi-IN' },
+    { code: 'pt', label: 'Portuguese', voice: 'pt-BR' },
+    { code: 'de', label: 'German', voice: 'de-DE' },
+    { code: 'ja', label: 'Japanese', voice: 'ja-JP' },
+    { code: 'ko', label: 'Korean', voice: 'ko-KR' },
+    { code: 'ru', label: 'Russian', voice: 'ru-RU' },
+    { code: 'vi', label: 'Vietnamese', voice: 'vi-VN' },
+    { code: 'tl', label: 'Tagalog', voice: 'fil-PH' },
+  ];
+
+  const handleTranslate = async (langCode) => {
+    setTargetLang(langCode);
+    setTranslatedText('');
+    if (!langCode) return;
+
+    const summary = buildSummary(profile);
+    if (!summary) return;
+
+    const cacheKey = `${langCode}::${summary}`;
+    if (translationCache.current[cacheKey]) {
+      setTranslatedText(translationCache.current[cacheKey]);
+      return;
+    }
+
+    setTranslating(true);
+    try {
+      const res = await fetch(
+        `https://translation.googleapis.com/language/translate/v2?key=${import.meta.env.VITE_GEMINI_TRANSLATE_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            q: summary,
+            target: langCode,
+            source: 'en',
+            format: 'text',
+          }),
+        }
+      );
+      const json = await res.json();
+      const text = json?.data?.translations?.[0]?.translatedText;
+      if (text) {
+        translationCache.current[cacheKey] = text;
+        setTranslatedText(text);
+      } else {
+        setTranslatedText('Translation failed. Check your API key or Cloud Translation API is enabled.');
+      }
+    } catch (e) {
+      console.error('Translation error:', e);
+      setTranslatedText('Translation failed. Please try again.');
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const handleSpeak = (text, langCode) => {
+    if (!text) return;
+    if (speaking) {
+      speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
+    }
+    const voiceLang = LANGUAGES.find(l => l.code === langCode)?.voice || langCode;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = voiceLang;
+    utterance.rate = 0.9;
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    setSpeaking(true);
+    speechSynthesis.speak(utterance);
+  };
+
+  // ── Build QR URL (clean, points to Supabase-backed page) ──
+  const qrValue = user
+    ? `${window.location.protocol}//${window.location.hostname}:${window.location.port}/health-profile/${user.id}`
+    : 'Loading...';
 
   // ── Download QR as SVG ──
   const downloadQR = () => {
@@ -415,7 +559,7 @@ const HealthProfile = () => {
               </div>
             </div>
             <p style={{ margin: '0 0 8px', fontSize: '13px', color: '#94a3b8' }}>
-              Your data is stored locally on this device only.
+              {loading ? 'Loading your profile…' : 'Your data is securely synced to the cloud.'}
             </p>
 
             {/* Personal Info */}
@@ -434,6 +578,10 @@ const HealthProfile = () => {
             <div style={{ marginTop: '12px' }}>
               <Field label="Conditions" value={profile.conditions} onChange={v => updateField('conditions', v)} placeholder="Hypertension, Diabetes…" />
             </div>
+
+            {/* Current Symptoms */}
+            <SectionTitle>Current Symptoms</SectionTitle>
+            <Field label="Current Symptoms" value={profile.currentSymptoms} onChange={v => updateField('currentSymptoms', v)} placeholder="Chest pain, shortness of breath, dizziness…" />
 
             {/* Past Procedures */}
             <SectionTitle>Past Procedures</SectionTitle>
@@ -508,82 +656,171 @@ const HealthProfile = () => {
             {/* Passport info */}
             <div style={{ textAlign: 'center' }}>
               <h2 style={{ margin: '0 0 6px', fontSize: '18px', fontWeight: 800, color: '#1e293b', lineHeight: 1.3 }}>
-                Your Shareable Health Passport
+                Your Health Passport
               </h2>
               <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Scan QR to view full medical profile</p>
             </div>
 
-            {/* Shareable link preview */}
+            {/* Phone Call Summary */}
             <div style={{
               width: '100%', backgroundColor: 'white', borderRadius: '12px',
-              padding: '14px 16px', border: '1px solid #e2e8f0',
+              padding: '16px', border: '1px solid #e2e8f0',
             }}>
-              <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Shareable Link
-              </div>
               <div style={{
-                fontSize: '12px',
-                color: TEAL,
-                fontFamily: 'monospace',
-                padding: '8px 10px',
-                backgroundColor: '#f0fdf4',
-                borderRadius: '6px',
-                wordBreak: 'break-all',
-                lineHeight: 1.5,
-                marginBottom: '8px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                marginBottom: '12px',
               }}>
-                {qrValue}
-              </div>
-              <button
-                onClick={() => {
-                  // Fallback copy method that works in all browsers
-                  const textArea = document.createElement('textarea');
-                  textArea.value = qrValue;
-                  textArea.style.position = 'fixed';
-                  textArea.style.opacity = '0';
-                  document.body.appendChild(textArea);
-                  textArea.select();
-                  try {
-                    document.execCommand('copy');
-                    alert('✅ Link copied to clipboard!\n\n' + qrValue);
-                  } catch (err) {
-                    alert('⚠️ Could not copy. Please copy manually:\n\n' + qrValue);
-                  }
-                  document.body.removeChild(textArea);
-                }}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  backgroundColor: TEAL,
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  color: 'white',
-                  cursor: 'pointer',
-                  transition: 'opacity 0.2s',
-                }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '0.9'}
-                onMouseLeave={e => e.currentTarget.style.opacity = '1'}
-              >
-                📋 Copy Shareable Link
-              </button>
-              {profile.firstName && profile.lastName && (
-                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>
-                    <strong>Preview:</strong>
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#1e293b', fontWeight: 600 }}>
-                    {[profile.firstName, profile.lastName].filter(Boolean).join(' ')}
-                  </div>
-                  {profile.bloodType && (
-                    <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>
-                      Blood Type: {profile.bloodType}
-                    </div>
-                  )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '15px' }}>📞</span>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Phone Call Script
+                  </span>
                 </div>
+                {buildSummary(profile) && (
+                  <button
+                    onClick={() => {
+                      const ta = document.createElement('textarea');
+                      ta.value = buildSummary(profile);
+                      ta.style.position = 'fixed'; ta.style.opacity = '0';
+                      document.body.appendChild(ta);
+                      ta.select();
+                      document.execCommand('copy');
+                      document.body.removeChild(ta);
+                      alert('✅ Script copied to clipboard!');
+                    }}
+                    style={{
+                      padding: '4px 10px', borderRadius: '6px',
+                      backgroundColor: '#f1f5f9', border: '1px solid #e2e8f0',
+                      fontSize: '11px', fontWeight: 600, color: '#475569',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    📋 Copy
+                  </button>
+                )}
+              </div>
+
+              {buildSummary(profile) ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {buildSummary(profile).split('\n\n').map((line, i) => (
+                    <p key={i} style={{
+                      margin: 0,
+                      fontSize: '13px',
+                      color: i === 0 ? '#0f766e' : '#374151',
+                      fontWeight: i === 0 ? 600 : 400,
+                      lineHeight: 1.7,
+                      paddingLeft: i > 0 && i < buildSummary(profile).split('\n\n').length - 1 ? '10px' : '0',
+                      borderLeft: i > 0 && i < buildSummary(profile).split('\n\n').length - 1 ? '2px solid #e2e8f0' : 'none',
+                    }}>
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' }}>
+                  Fill in your profile to generate a phone call script.
+                </p>
               )}
             </div>
+
+            {/* Translate & Speak Section */}
+            {buildSummary(profile) && (
+              <div style={{
+                width: '100%', backgroundColor: 'white', borderRadius: '12px',
+                padding: '16px', border: '1px solid #e2e8f0',
+              }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px',
+                }}>
+                  <span style={{ fontSize: '15px' }}>🌐</span>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Translate & Read Aloud
+                  </span>
+                </div>
+
+                <select
+                  value={targetLang}
+                  onChange={e => handleTranslate(e.target.value)}
+                  style={{
+                    width: '100%', padding: '10px 12px', borderRadius: '8px',
+                    border: '1px solid #e2e8f0', fontSize: '13px',
+                    color: '#1e293b', backgroundColor: 'white',
+                    cursor: 'pointer', outline: 'none', marginBottom: '12px',
+                  }}
+                >
+                  <option value="">Select a language…</option>
+                  {LANGUAGES.map(l => (
+                    <option key={l.code} value={l.code}>{l.label}</option>
+                  ))}
+                </select>
+
+                {translating && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    color: '#94a3b8', fontSize: '13px', padding: '8px 0',
+                  }}>
+                    <div style={{
+                      width: '14px', height: '14px', border: '2px solid #e2e8f0',
+                      borderTopColor: TEAL, borderRadius: '50%',
+                      animation: 'spin 0.8s linear infinite',
+                    }} />
+                    Translating…
+                  </div>
+                )}
+
+                {translatedText && !translating && (
+                  <>
+                    <div style={{
+                      padding: '12px', backgroundColor: '#f8fafc',
+                      borderRadius: '8px', border: '1px solid #e2e8f0',
+                      fontSize: '13px', color: '#374151', lineHeight: 1.75,
+                      whiteSpace: 'pre-line', marginBottom: '10px',
+                    }}>
+                      {translatedText}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={() => handleSpeak(translatedText, targetLang)}
+                        style={{
+                          flex: 1, padding: '10px', borderRadius: '8px',
+                          backgroundColor: speaking ? '#dc2626' : TEAL,
+                          border: 'none', color: 'white',
+                          fontSize: '13px', fontWeight: 700,
+                          cursor: 'pointer', display: 'flex',
+                          alignItems: 'center', justifyContent: 'center', gap: '6px',
+                          transition: 'background-color 0.2s',
+                        }}
+                      >
+                        {speaking ? '⏹ Stop' : '🔊 Read Aloud'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          const ta = document.createElement('textarea');
+                          ta.value = translatedText;
+                          ta.style.position = 'fixed'; ta.style.opacity = '0';
+                          document.body.appendChild(ta);
+                          ta.select();
+                          document.execCommand('copy');
+                          document.body.removeChild(ta);
+                          alert('✅ Translated text copied!');
+                        }}
+                        style={{
+                          padding: '10px 14px', borderRadius: '8px',
+                          backgroundColor: '#f1f5f9', border: '1px solid #e2e8f0',
+                          fontSize: '13px', fontWeight: 600, color: '#475569',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        📋
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
             {/* Action buttons */}
             <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
