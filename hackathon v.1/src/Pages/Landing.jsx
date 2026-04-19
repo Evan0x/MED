@@ -108,7 +108,7 @@ const Landing = () => {
   ];
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <div style={{width: '100%', minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       <AuthHeader />
 
       {/* Hero */}
@@ -139,7 +139,7 @@ const Landing = () => {
         }} />
 
         {/* Content */}
-        <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '700px', textAlign: 'center' }}>
+        <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '700px', textAlign: 'center', marginBottom: '200px'}}>
           <h1 style={{
             fontSize: 'clamp(36px, 6vw, 56px)',
             fontWeight: 800,
