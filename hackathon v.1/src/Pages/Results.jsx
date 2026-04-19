@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AuthHeader from '../Components/AuthHeader';
+import PlaceDetailModal from '../Components/PlaceDetailModal';
 
 // ── Bayesian rating helpers ───────────────────────────────────────────────────
 
@@ -41,57 +42,40 @@ function getBestOverall(filtered) {
 function getSecondResult(filtered, sortMethod, bestOverallId) {
   const available = filtered.filter((p) => p.place_id !== bestOverallId);
   if (available.length === 0) return null;
-  
   const stats = poolStats(available);
-  
   switch (sortMethod) {
     case 'distance':
-      return available[0]; // Already sorted by distance from API
-      
-    case 'cheapest':
-      const sorted = [...available].sort((a, b) => {
-        const priceA = a.price_level ?? 2;
-        const priceB = b.price_level ?? 2;
-        return priceA - priceB;
-      });
+      return available[0];
+    case 'cheapest': {
+      const sorted = [...available].sort((a, b) => (a.price_level ?? 2) - (b.price_level ?? 2));
       return sorted[0];
-      
-    case 'highest_rating':
+    }
+    case 'highest_rating': {
       const rated = available
         .filter((p) => p.rating != null)
         .map((p) => ({
           place: p,
-          adjustedRating: bayesianRating(
-            p.rating,
-            p.user_ratings_total,
-            stats.meanRating,
-            stats.meanReviews
-          )
+          adjustedRating: bayesianRating(p.rating, p.user_ratings_total, stats.meanRating, stats.meanReviews),
         }))
         .sort((a, b) => b.adjustedRating - a.adjustedRating);
       return rated[0]?.place ?? available[0];
-      
-    case 'most_reviewed':
-      const byReviews = [...available].sort((a, b) => 
-        (b.user_ratings_total ?? 0) - (a.user_ratings_total ?? 0)
-      );
+    }
+    case 'most_reviewed': {
+      const byReviews = [...available].sort((a, b) => (b.user_ratings_total ?? 0) - (a.user_ratings_total ?? 0));
       return byReviews[0];
-      
-    case 'insurance':
+    }
+    case 'insurance': {
       const byInsurance = [...available]
-        .map((p) => ({
-          place: p,
-          insuranceScore: calculateInsuranceScore(p)
-        }))
+        .map((p) => ({ place: p, insuranceScore: calculateInsuranceScore(p) }))
         .sort((a, b) => b.insuranceScore - a.insuranceScore);
       return byInsurance[0]?.place ?? available[0];
-      
+    }
     default:
       return available[0];
   }
 }
 
-// ── Search helper ─────────────────────────────────────────────────────────────
+// ── Search helpers ─────────────────────────────────────────────────────────────
 
 function nearbySearchPromise(service, params) {
   return new Promise((resolve) => {
@@ -104,10 +88,8 @@ function nearbySearchPromise(service, params) {
 function placeDetailsPromise(service, placeId) {
   return new Promise((resolve) => {
     service.getDetails(
-      { placeId, fields: ['opening_hours', 'website', 'reviews'] },
-      (result, status) => {
-        resolve({ result, status });
-      }
+      { placeId, fields: ['opening_hours', 'website', 'formatted_phone_number', 'photos', 'reviews', 'url'] },
+      (result, status) => { resolve({ placeId, data: result, status }); }
     );
   });
 }
@@ -116,39 +98,19 @@ function calculateInsuranceScore(place) {
   let score = 0;
   const name = (place.name ?? '').toLowerCase();
   const types = place.types ?? [];
-  
-  // Check for insurance-related keywords in name
-  const insuranceKeywords = [
-    'insurance', 'medicare', 'medicaid', 'hmo', 'ppo', 
+  const insuranceKeywords = ['insurance', 'medicare', 'medicaid', 'hmo', 'ppo',
     'blue cross', 'blue shield', 'aetna', 'cigna', 'united healthcare',
-    'network', 'in-network', 'accepts insurance'
-  ];
-  
-  insuranceKeywords.forEach(keyword => {
-    if (name.includes(keyword)) score += 20;
-  });
-  
-  // Prioritize certain facility types likely to accept insurance
+    'network', 'in-network', 'accepts insurance'];
+  insuranceKeywords.forEach((k) => { if (name.includes(k)) score += 20; });
   if (types.includes('hospital')) score += 15;
   if (types.includes('clinic') || types.includes('health')) score += 12;
   if (types.includes('doctor')) score += 10;
   if (types.includes('pharmacy') && !name.includes('independent')) score += 8;
-  
-  // Chain/franchise medical facilities more likely to accept insurance
-  const chainKeywords = [
-    'cvs', 'walgreens', 'rite aid', 'walmart', 'target', 'costco',
-    'kaiser', 'urgent care', 'minuteclinic', 'one medical',
-    'planned parenthood', 'community health'
-  ];
-  
-  chainKeywords.forEach(keyword => {
-    if (name.includes(keyword)) score += 15;
-  });
-  
-  // Higher review count might indicate established practice
+  const chainKeywords = ['cvs', 'walgreens', 'rite aid', 'walmart', 'target', 'costco',
+    'kaiser', 'urgent care', 'minuteclinic', 'one medical', 'planned parenthood', 'community health'];
+  chainKeywords.forEach((k) => { if (name.includes(k)) score += 15; });
   if (place.user_ratings_total > 100) score += 5;
   if (place.user_ratings_total > 500) score += 5;
-  
   return score;
 }
 
@@ -156,228 +118,55 @@ function calculateInsuranceScore(place) {
 
 const SECTIONS = [
   {
-    id: 'medical',
-    label: 'Medical',
+    id: 'medical', label: 'Medical',
+    icon: '🏥',
     categories: [
+      { id: 'pharmacy', label: 'Pharmacy', searchParams: { type: 'pharmacy' }, filter: (p) => (p.types ?? []).includes('pharmacy') },
+      { id: 'er', label: 'ER / Emergency', searchParams: { type: 'hospital', keyword: 'emergency' }, filter: (p) => (p.types ?? []).includes('hospital') },
+      { id: 'dentist', label: 'Dentist', searchParams: { type: 'dentist' }, filter: (p) => (p.types ?? []).includes('dentist') },
       {
-        id: 'pharmacy',
-        label: 'Pharmacy',
-        searchParams: { type: 'pharmacy' },
-        // Keep real pharmacies; hospital-based pharmacies carry the 'pharmacy' type too
-        filter: (p) => (p.types ?? []).includes('pharmacy'),
-      },
-      {
-        id: 'er',
-        label: 'ER / Emergency',
-        searchParams: { type: 'hospital', keyword: 'emergency' },
-        filter: (p) => (p.types ?? []).includes('hospital'),
-      },
-      {
-        id: 'dentist',
-        label: 'Dentist',
-        searchParams: { type: 'dentist' },
-        filter: (p) => (p.types ?? []).includes('dentist'),
-      },
-      {
-        id: 'clinic',
-        label: 'Clinic',
-        // Use keyword to surface urgent care / walk-in clinics alongside doctor offices
+        id: 'clinic', label: 'Clinic',
         searchParams: { type: 'doctor', keyword: 'clinic urgent care walk-in' },
         filter: (p) => {
-          const types = p.types ?? [];
-          const name = (p.name ?? '').toLowerCase();
-          return (
-            types.includes('doctor') ||
-            types.includes('health') ||
-            name.includes('clinic') ||
-            name.includes('urgent') ||
-            name.includes('walk-in') ||
-            name.includes('walk in')
-          );
+          const types = p.types ?? []; const name = (p.name ?? '').toLowerCase();
+          return types.includes('doctor') || types.includes('health') || name.includes('clinic') || name.includes('urgent') || name.includes('walk-in') || name.includes('walk in');
         },
       },
       {
-        id: 'optician',
-        label: 'Optician',
+        id: 'optician', label: 'Optician',
         searchParams: { keyword: 'optician optometrist eye care vision' },
-        filter: (p) => {
-          const name = (p.name ?? '').toLowerCase();
-          return (
-            name.includes('optic') ||
-            name.includes('optom') ||
-            name.includes('vision') ||
-            name.includes('eye') ||
-            name.includes('lens') ||
-            name.includes('spectacl') ||
-            name.includes('eyeglass')
-          );
-        },
+        filter: (p) => { const name = (p.name ?? '').toLowerCase(); return name.includes('optic') || name.includes('optom') || name.includes('vision') || name.includes('eye') || name.includes('lens') || name.includes('spectacl') || name.includes('eyeglass'); },
       },
     ],
   },
   {
-    id: 'wellness',
-    label: 'Wellness',
+    id: 'wellness', label: 'Wellness',
+    icon: '🌿',
     categories: [
       {
-        id: 'gym',
-        label: 'Gym',
-        searchParams: { type: 'gym' },
-        filter: (p) => {
-          const types = p.types ?? [];
-          const name = (p.name ?? '').toLowerCase();
-          return (
-            types.includes('gym') ||
-            name.includes('gym') ||
-            name.includes('fitness') ||
-            name.includes('crossfit') ||
-            name.includes('yoga') ||
-            name.includes('pilates')
-          );
-        },
+        id: 'gym', label: 'Gym', searchParams: { type: 'gym' },
+        filter: (p) => { const types = p.types ?? []; const name = (p.name ?? '').toLowerCase(); return types.includes('gym') || name.includes('gym') || name.includes('fitness') || name.includes('crossfit') || name.includes('yoga') || name.includes('pilates'); },
+      },
+      { id: 'outdoor', label: 'Outdoor Space', searchParams: { type: 'park' }, filter: (p) => { const types = p.types ?? []; return types.includes('park') || types.includes('natural_feature') || types.includes('campground') || types.includes('stadium'); } },
+      {
+        id: 'community', label: 'Community Center', searchParams: { keyword: 'community center recreation center' },
+        filter: (p) => { const name = (p.name ?? '').toLowerCase(); return name.includes('community') || name.includes('recreation') || name.includes('rec ') || name.includes('civic') || name.includes('centre') || name.includes('center') || name.includes('ymca') || name.includes('ywca'); },
       },
       {
-        id: 'outdoor',
-        label: 'Outdoor Space',
-        searchParams: { type: 'park' },
-        filter: (p) => {
-          const types = p.types ?? [];
-          return (
-            types.includes('park') ||
-            types.includes('natural_feature') ||
-            types.includes('campground') ||
-            types.includes('stadium')
-          );
-        },
+        id: 'therapist', label: 'Therapist', searchParams: { keyword: 'therapist counseling mental health psychology' },
+        filter: (p) => { const types = p.types ?? []; const name = (p.name ?? '').toLowerCase(); return types.includes('physiotherapist') || name.includes('therap') || name.includes('counsel') || name.includes('mental') || name.includes('psych') || name.includes('behav'); },
       },
       {
-        id: 'community',
-        label: 'Community Center',
-        searchParams: { keyword: 'community center recreation center' },
+        id: 'healthy_eating', label: 'Healthy Eating', searchParams: { keyword: 'healthy organic vegan salad juice bar' },
         filter: (p) => {
-          const name = (p.name ?? '').toLowerCase();
-          return (
-            name.includes('community') ||
-            name.includes('recreation') ||
-            name.includes('rec ') ||
-            name.includes('civic') ||
-            name.includes('centre') ||
-            name.includes('center') ||
-            name.includes('ymca') ||
-            name.includes('ywca')
-          );
-        },
-      },
-      {
-        id: 'therapist',
-        label: 'Therapist',
-        searchParams: { keyword: 'therapist counseling mental health psychology' },
-        filter: (p) => {
-          const types = p.types ?? [];
-          const name = (p.name ?? '').toLowerCase();
-          return (
-            types.includes('physiotherapist') ||
-            name.includes('therap') ||
-            name.includes('counsel') ||
-            name.includes('mental') ||
-            name.includes('psych') ||
-            name.includes('behav')
-          );
-        },
-      },
-      {
-        id: 'healthy_eating',
-        label: 'Healthy Eating',
-        searchParams: { keyword: 'healthy organic vegan salad juice bar' },
-        filter: (p) => {
-          const types = p.types ?? [];
-          const name = (p.name ?? '').toLowerCase();
-          const foodTypes = [
-            'restaurant', 'food', 'cafe', 'bakery',
-            'meal_takeaway', 'meal_delivery',
-            'health_food_store', 'grocery_or_supermarket',
-          ];
-          return (
-            types.some((t) => foodTypes.includes(t)) ||
-            name.includes('health') ||
-            name.includes('organic') ||
-            name.includes('vegan') ||
-            name.includes('salad') ||
-            name.includes('juice') ||
-            name.includes('natural') ||
-            name.includes('wholesome')
-          );
+          const types = p.types ?? []; const name = (p.name ?? '').toLowerCase();
+          const foodTypes = ['restaurant', 'food', 'cafe', 'bakery', 'meal_takeaway', 'meal_delivery', 'health_food_store', 'grocery_or_supermarket'];
+          return types.some((t) => foodTypes.includes(t)) || name.includes('health') || name.includes('organic') || name.includes('vegan') || name.includes('salad') || name.includes('juice') || name.includes('natural') || name.includes('wholesome');
         },
       },
     ],
   },
 ];
-
-// ── Component ─────────────────────────────────────────────────────────────────
-
-const PlaceCard = ({ label, place, detailedHours, showInsuranceIndicator }) => {
-  const [showHours, setShowHours] = useState(false);
-  const insuranceScore = showInsuranceIndicator ? calculateInsuranceScore(place) : 0;
-
-  return (
-    <li style={{ marginBottom: '16px' }}>
-      <div>
-        <strong>[{label}]</strong> {place.name}
-        {showInsuranceIndicator && insuranceScore > 15 && (
-          <span style={{ 
-            marginLeft: '6px',
-            padding: '2px 8px',
-            background: '#e8f5e9',
-            color: '#2e7d32',
-            fontSize: '11px',
-            borderRadius: '12px',
-            fontWeight: 'bold',
-            border: '1px solid #4caf50'
-          }}>
-            💳 Likely Accepts Insurance
-          </span>
-        )}
-        {place.vicinity && <span> — {place.vicinity}</span>}
-        {place.rating != null && (
-          <span> | {place.rating} ★ ({place.user_ratings_total ?? 0} reviews)</span>
-        )}
-        {place.price_level != null && (
-          <span> | {place.price_level === 0 ? 'Free' : '$'.repeat(place.price_level)}</span>
-        )}
-        {place.opening_hours && (
-          <span> | <strong style={{ color: place.opening_hours.open_now ? 'green' : 'red' }}>
-            {place.opening_hours.open_now ? '✓ Open now' : '✗ Closed'}
-          </strong></span>
-        )}
-      </div>
-
-      {detailedHours && (
-        <div style={{ marginTop: '8px' }}>
-          <button
-            onClick={() => setShowHours(!showHours)}
-            style={{
-              fontSize: '12px',
-              padding: '4px 8px',
-              cursor: 'pointer',
-              background: '#f0f0f0',
-              border: '1px solid #ccc',
-              borderRadius: '4px'
-            }}
-          >
-            {showHours ? '▼' : '▶'} {showHours ? 'Hide' : 'Show'} Hours
-          </button>
-          {showHours && (
-            <div style={{ marginTop: '6px', fontSize: '13px', color: '#555' }}>
-              {detailedHours.weekday_text?.map((day, i) => (
-                <div key={i} style={{ padding: '2px 0' }}>{day}</div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </li>
-  );
-};
 
 const SORT_OPTIONS = [
   { value: 'distance', label: 'Nearest' },
@@ -387,34 +176,171 @@ const SORT_OPTIONS = [
   { value: 'insurance', label: 'Likely Accepts Insurance' },
 ];
 
+const TEAL = '#0f766e';
+const AMBER = '#f59e0b';
+
+// ── Result Card ───────────────────────────────────────────────────────────────
+
+const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, onClick }) => {
+  const [hovered, setHovered] = useState(false);
+  const photoUrl = place.photos?.[0]?.getUrl?.({ maxWidth: 160, maxHeight: 160 });
+  const isOpen = place.opening_hours?.open_now;
+  const insuranceScore = showInsuranceIndicator ? calculateInsuranceScore(place) : 0;
+
+  const labelColor = label === 'Best Overall'
+    ? { bg: '#f0fdf4', color: TEAL, border: '#bbf7d0' }
+    : { bg: '#fffbeb', color: '#92400e', border: '#fde68a' };
+
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        gap: '14px',
+        padding: '16px',
+        borderRadius: '14px',
+        border: `1px solid ${hovered ? '#cbd5e1' : '#e2e8f0'}`,
+        cursor: 'pointer',
+        marginBottom: '12px',
+        backgroundColor: hovered ? '#f8fafc' : 'white',
+        transition: 'all 0.15s ease',
+        boxShadow: hovered ? '0 4px 16px rgba(0,0,0,0.08)' : '0 1px 4px rgba(0,0,0,0.04)',
+        alignItems: 'flex-start',
+      }}
+    >
+      {/* Thumbnail */}
+      <div style={{
+        width: '80px', height: '80px', borderRadius: '10px', flexShrink: 0, overflow: 'hidden',
+        backgroundColor: '#f1f5f9',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {photoUrl ? (
+          <img src={photoUrl} alt={place.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : (
+          <span style={{ fontSize: '28px' }}>🏥</span>
+        )}
+      </div>
+
+      {/* Info */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+          <span style={{ fontWeight: 700, fontSize: '15px', color: '#1e293b', lineHeight: 1.3 }}>{place.name}</span>
+          {place.rating != null && (
+            <span style={{ flexShrink: 0, fontSize: '13px', color: '#1e293b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+              <span style={{ color: AMBER }}>★</span>
+              {place.rating.toFixed(1)}
+              <span style={{ color: '#94a3b8', fontWeight: 400 }}>({place.user_ratings_total ?? 0})</span>
+            </span>
+          )}
+        </div>
+
+        {/* Category + label badges */}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+          <span style={{
+            padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
+            backgroundColor: '#f1f5f9', color: '#475569',
+          }}>{catLabel}</span>
+          <span style={{
+            padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
+            backgroundColor: labelColor.bg, color: labelColor.color, border: `1px solid ${labelColor.border}`,
+          }}>{label}</span>
+          {showInsuranceIndicator && insuranceScore > 15 && (
+            <span style={{
+              padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
+              backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0',
+            }}>💳 Insurance</span>
+          )}
+        </div>
+
+        {place.vicinity && (
+          <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span>📍</span> {place.vicinity}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {place.opening_hours && (
+            <span style={{ fontSize: '12px', fontWeight: 600, color: isOpen ? '#16a34a' : '#dc2626' }}>
+              {isOpen ? '● Open' : '● Closed'}
+            </span>
+          )}
+          {details?.hours?.weekday_text?.[((new Date().getDay() + 6) % 7)] && (
+            <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+              · {details.hours.weekday_text[((new Date().getDay() + 6) % 7)].split(': ')[1]}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Chevron */}
+      <div style={{ color: '#cbd5e1', fontSize: '18px', flexShrink: 0, alignSelf: 'center', marginLeft: '4px' }}>›</div>
+    </div>
+  );
+};
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
 const Results = () => {
   const { state } = useLocation();
   const navigate = useNavigate();
   const mapDivRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersRef = useRef([]);
+  const userMarkerRef = useRef(null);
+
   const [activeSection, setActiveSection] = useState(0);
   const [categoryData, setCategoryData] = useState(null);
   const [loadingStatus, setLoadingStatus] = useState('Searching nearby places…');
   const [excludeClosed, setExcludeClosed] = useState(false);
   const [placeDetails, setPlaceDetails] = useState({});
   const [secondSortMethod, setSecondSortMethod] = useState('distance');
+  const [selectedPlace, setSelectedPlace] = useState(null);
 
+  // ── Initialize map + run searches ──
   useEffect(() => {
     if (!state) return;
-
     const { lat, lng } = state;
 
     const runAllSearches = () => {
-      const center = new window.google.maps.LatLng(lat, lng);
-      const service = new window.google.maps.places.PlacesService(mapDivRef.current);
+      const mapInstance = new window.google.maps.Map(mapDivRef.current, {
+        center: { lat, lng },
+        zoom: 14,
+        disableDefaultUI: false,
+        zoomControl: true,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: true,
+        styles: [
+          { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+          { featureType: 'transit', stylers: [{ visibility: 'simplified' }] },
+        ],
+      });
+      mapInstanceRef.current = mapInstance;
 
+      // User location marker
+      userMarkerRef.current = new window.google.maps.Marker({
+        position: { lat, lng },
+        map: mapInstance,
+        title: 'Your Location',
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: TEAL,
+          fillOpacity: 1,
+          strokeColor: 'white',
+          strokeWeight: 3,
+        },
+        zIndex: 999,
+      });
+
+      const service = new window.google.maps.places.PlacesService(mapInstance);
       const allCategories = SECTIONS.flatMap((s) => s.categories);
+      const center = new window.google.maps.LatLng(lat, lng);
 
       const searches = allCategories.map((cat) => {
-        const params = {
-          location: center,
-          rankBy: window.google.maps.places.RankBy.DISTANCE,
-          ...cat.searchParams,
-        };
+        const params = { location: center, rankBy: window.google.maps.places.RankBy.DISTANCE, ...cat.searchParams };
         return nearbySearchPromise(service, params).then(({ results }) => {
           const filtered = results.filter(cat.filter).slice(0, 20);
           return { id: cat.id, allPlaces: filtered };
@@ -423,28 +349,27 @@ const Results = () => {
 
       Promise.all(searches).then((results) => {
         const data = {};
-        results.forEach((r) => {
-          data[r.id] = { allPlaces: r.allPlaces };
-        });
+        results.forEach((r) => { data[r.id] = { allPlaces: r.allPlaces }; });
         setCategoryData(data);
         setLoadingStatus('');
 
-        // Fetch detailed hours for all places
+        // Fetch detailed info for all places
         const allPlaces = results.flatMap((r) => r.allPlaces).filter(Boolean);
         const detailsPromises = allPlaces.map((place) =>
           placeDetailsPromise(service, place.place_id)
-            .then(({ result }) => ({
-              placeId: place.place_id,
-              hours: result?.opening_hours
-            }))
         );
 
-        Promise.all(detailsPromises).then((details) => {
+        Promise.all(detailsPromises).then((detailResults) => {
           const detailsMap = {};
-          details.forEach((d) => {
-            if (d.hours) {
-              detailsMap[d.placeId] = d.hours;
-            }
+          detailResults.forEach((d) => {
+            detailsMap[d.placeId] = {
+              hours: d.data?.opening_hours,
+              website: d.data?.website,
+              phone: d.data?.formatted_phone_number,
+              photos: d.data?.photos,
+              reviews: d.data?.reviews,
+              url: d.data?.url,
+            };
           });
           setPlaceDetails(detailsMap);
         });
@@ -463,152 +388,242 @@ const Results = () => {
     }
   }, [state]);
 
+  // ── Update map markers when section / data changes ──
+  useEffect(() => {
+    if (!categoryData || !mapInstanceRef.current) return;
+
+    markersRef.current.forEach((m) => m.setMap(null));
+    markersRef.current = [];
+
+    const activeCategories = SECTIONS[activeSection].categories;
+    activeCategories.forEach((cat) => {
+      const places = categoryData[cat.id]?.allPlaces ?? [];
+      places.forEach((place) => {
+        if (!place.geometry?.location) return;
+        const marker = new window.google.maps.Marker({
+          position: place.geometry.location,
+          map: mapInstanceRef.current,
+          title: place.name,
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 8,
+            fillColor: place.opening_hours?.open_now ? '#16a34a' : '#dc2626',
+            fillOpacity: 0.9,
+            strokeColor: 'white',
+            strokeWeight: 2,
+          },
+        });
+        marker.addListener('click', () => setSelectedPlace(place));
+        markersRef.current.push(marker);
+      });
+    });
+  }, [categoryData, activeSection]);
+
   if (!state) {
     return (
-      <div>
-        <p>No location data found.</p>
-        <button onClick={() => navigate('/')}>Go back</button>
+      <div style={{ fontFamily: 'system-ui, sans-serif' }}>
+        <AuthHeader showBack onBack={() => navigate('/')} />
+        <div style={{ padding: '60px', textAlign: 'center' }}>
+          <p style={{ color: '#64748b', marginBottom: '20px' }}>No location data found.</p>
+          <button onClick={() => navigate('/')} style={{ padding: '12px 24px', backgroundColor: TEAL, color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 600 }}>
+            Go back
+          </button>
+        </div>
       </div>
     );
   }
 
   const activeCategories = SECTIONS[activeSection].categories;
+  const cityName = state.address?.split(',').slice(0, 2).join(',') ?? state.address;
+
+  // Count results for active section
+  let resultCount = 0;
+  if (categoryData) {
+    activeCategories.forEach((cat) => {
+      const data = categoryData[cat.id];
+      const places = excludeClosed
+        ? (data?.allPlaces ?? []).filter((p) => p.opening_hours?.open_now)
+        : (data?.allPlaces ?? []);
+      if (places.length > 0) resultCount += Math.min(2, places.length);
+    });
+  }
 
   return (
-    <div>
-      <AuthHeader />
-      
-      <div ref={mapDivRef} style={{ display: 'none' }} />
+    <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <AuthHeader showBack onBack={() => navigate('/')} />
 
-      <div style={{ padding: '0 30px' }}>
-        <p style={{ fontSize: '16px', marginBottom: '10px' }}>
-          <strong>Location:</strong> {state.address}
-        </p>
-        <button 
-          onClick={() => navigate('/')}
-          style={{
-            padding: '10px 20px',
-            cursor: 'pointer',
-            backgroundColor: '#f44336',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            fontSize: '14px',
-            fontWeight: 'bold',
-            marginBottom: '20px'
-          }}
-        >
-          ← Go back
-        </button>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* ── Left panel: results list ── */}
+        <div style={{
+          width: '480px', flexShrink: 0,
+          display: 'flex', flexDirection: 'column',
+          borderRight: '1px solid #e2e8f0',
+          overflow: 'hidden',
+        }}>
+          {/* Panel header */}
+          <div style={{ padding: '20px 20px 0', flexShrink: 0 }}>
+            <h2 style={{ margin: '0 0 4px', fontSize: '20px', fontWeight: 700, color: '#1e293b' }}>
+              Healthcare near{' '}
+              <span style={{ color: TEAL }}>{cityName}</span>
+            </h2>
+            {!loadingStatus && categoryData && (
+              <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#94a3b8' }}>
+                {resultCount} result{resultCount !== 1 ? 's' : ''} found
+              </p>
+            )}
+            {loadingStatus && (
+              <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#94a3b8' }}>
+                {loadingStatus}
+              </p>
+            )}
 
-        <div style={{ marginTop: '16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setExcludeClosed(!excludeClosed)}
-            style={{
-              padding: '8px 16px',
-              background: excludeClosed ? '#1a7f5a' : '#f0f0f0',
-              color: excludeClosed ? 'white' : 'black',
-              border: '1px solid #ccc',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: 'bold'
-            }}
-          >
-            {excludeClosed ? '✓' : '○'} Exclude Closed Places
-          </button>
-          
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <label htmlFor="sort-method" style={{ fontWeight: 'bold', fontSize: '14px' }}>
-              Sort 2nd Result By:
-            </label>
-            <select
-              id="sort-method"
-              value={secondSortMethod}
-              onChange={(e) => setSecondSortMethod(e.target.value)}
-              style={{
-                padding: '8px 12px',
-                border: '1px solid #ccc',
-                borderRadius: '6px',
-                fontSize: '14px',
-                cursor: 'pointer',
-                background: 'white'
-              }}
-            >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+            {/* Section tabs */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+              {SECTIONS.map((section, i) => (
+                <button
+                  key={section.id}
+                  onClick={() => setActiveSection(i)}
+                  style={{
+                    padding: '8px 18px', borderRadius: '24px', border: 'none',
+                    backgroundColor: activeSection === i ? TEAL : '#f1f5f9',
+                    color: activeSection === i ? 'white' : '#475569',
+                    fontWeight: 600, fontSize: '13px', cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {section.icon} {section.label}
+                </button>
               ))}
-            </select>
-          </div>
-        </div>
-
-        <div>
-          {SECTIONS.map((section, i) => (
-            <button
-              key={section.id}
-              onClick={() => setActiveSection(i)}
-              disabled={activeSection === i}
-            >
-              {section.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ padding: '0 30px' }}>
-        {loadingStatus && <p>{loadingStatus}</p>}
-
-        {categoryData && activeCategories.map((cat) => {
-        const data = categoryData[cat.id];
-        let allPlaces = data?.allPlaces ?? [];
-        
-        // Filter out closed places if the option is enabled
-        if (excludeClosed) {
-          allPlaces = allPlaces.filter((p) => p.opening_hours?.open_now);
-        }
-        
-        if (allPlaces.length === 0) {
-          return (
-            <div key={cat.id}>
-              <h3>{cat.label}</h3>
-              <p>{excludeClosed ? 'No open places found nearby.' : 'None found nearby.'}</p>
             </div>
-          );
-        }
-        
-        const bestOverall = getBestOverall(allPlaces);
-        const secondResult = bestOverall 
-          ? getSecondResult(allPlaces, secondSortMethod, bestOverall.place_id)
-          : null;
-        
-        const sortLabel = SORT_OPTIONS.find(opt => opt.value === secondSortMethod)?.label || 'Second Choice';
 
-        return (
-          <div key={cat.id}>
-            <h3>{cat.label}</h3>
-            <ul>
-              {bestOverall && (
-                <PlaceCard
-                  label="Best Overall"
-                  place={bestOverall}
-                  detailedHours={placeDetails[bestOverall.place_id]}
-                  showInsuranceIndicator={secondSortMethod === 'insurance'}
-                />
-              )}
-              {secondResult && (
-                <PlaceCard
-                  label={sortLabel}
-                  place={secondResult}
-                  detailedHours={placeDetails[secondResult.place_id]}
-                  showInsuranceIndicator={secondSortMethod === 'insurance'}
-                />
-              )}
-            </ul>
+            {/* Filter bar */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'center' }}>
+              <button
+                onClick={() => setExcludeClosed(!excludeClosed)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '7px 14px', borderRadius: '20px',
+                  border: `1px solid ${excludeClosed ? TEAL : '#e2e8f0'}`,
+                  backgroundColor: excludeClosed ? '#f0fdf4' : 'white',
+                  color: excludeClosed ? TEAL : '#475569',
+                  fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                🕐 Open Now
+              </button>
+
+              <select
+                value={secondSortMethod}
+                onChange={(e) => setSecondSortMethod(e.target.value)}
+                style={{
+                  padding: '7px 12px', borderRadius: '20px',
+                  border: '1px solid #e2e8f0',
+                  backgroundColor: 'white', color: '#475569',
+                  fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                  appearance: 'none', paddingRight: '28px',
+                  backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 10px center',
+                }}
+              >
+                <option value="" disabled>Sort by…</option>
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>⇅ {opt.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
-        );
-      })}
+
+          {/* Scrollable results */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px' }}>
+            {loadingStatus && (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔍</div>
+                <p style={{ margin: 0, fontWeight: 500 }}>{loadingStatus}</p>
+              </div>
+            )}
+
+            {categoryData && activeCategories.map((cat) => {
+              const data = categoryData[cat.id];
+              let allPlaces = data?.allPlaces ?? [];
+              if (excludeClosed) allPlaces = allPlaces.filter((p) => p.opening_hours?.open_now);
+              if (allPlaces.length === 0) return null;
+
+              const bestOverall = getBestOverall(allPlaces);
+              const secondResult = bestOverall
+                ? getSecondResult(allPlaces, secondSortMethod, bestOverall.place_id)
+                : null;
+              const sortLabel = SORT_OPTIONS.find((o) => o.value === secondSortMethod)?.label ?? 'Alternative';
+
+              return (
+                <div key={cat.id} style={{ marginBottom: '8px' }}>
+                  <div style={{
+                    fontSize: '11px', fontWeight: 700, color: '#94a3b8',
+                    textTransform: 'uppercase', letterSpacing: '1px',
+                    padding: '12px 0 8px',
+                  }}>
+                    {cat.label}
+                  </div>
+                  {bestOverall && (
+                    <ResultCard
+                      place={bestOverall}
+                      label="Best Overall"
+                      catLabel={cat.label}
+                      details={placeDetails[bestOverall.place_id]}
+                      showInsuranceIndicator={secondSortMethod === 'insurance'}
+                      onClick={() => setSelectedPlace(bestOverall)}
+                    />
+                  )}
+                  {secondResult && (
+                    <ResultCard
+                      place={secondResult}
+                      label={sortLabel}
+                      catLabel={cat.label}
+                      details={placeDetails[secondResult.place_id]}
+                      showInsuranceIndicator={secondSortMethod === 'insurance'}
+                      onClick={() => setSelectedPlace(secondResult)}
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            {categoryData && !loadingStatus && resultCount === 0 && (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                <div style={{ fontSize: '32px', marginBottom: '12px' }}>😔</div>
+                <p style={{ margin: 0, fontWeight: 500 }}>
+                  {excludeClosed ? 'No open places found. Try disabling the "Open Now" filter.' : 'No results found nearby.'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Right panel: Google Map ── */}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <div ref={mapDivRef} style={{ width: '100%', height: '100%' }} />
+          {!categoryData && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              backgroundColor: '#f0f9f7', color: '#94a3b8', pointerEvents: 'none',
+            }}>
+              <div style={{ fontSize: '48px', marginBottom: '12px', opacity: 0.4 }}>📍</div>
+              <p style={{ margin: 0, fontWeight: 600, fontSize: '16px' }}>Interactive Map</p>
+              <p style={{ margin: '4px 0 0', fontSize: '13px' }}>Clinic locations will appear here</p>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* ── Place detail popup ── */}
+      {selectedPlace && (
+        <PlaceDetailModal
+          place={selectedPlace}
+          details={placeDetails[selectedPlace.place_id]}
+          onClose={() => setSelectedPlace(null)}
+        />
+      )}
     </div>
   );
 };
