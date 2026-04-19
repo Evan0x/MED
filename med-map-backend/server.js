@@ -8,18 +8,26 @@ const app = express();
 app.use(express.json());
 app.use(cors()); // Allows your Vite frontend to talk to this server
 
-// Add this line right above mongoose.connect
-console.log("TESTING URI:", process.env.MONGO_URI);
-
-// Connect to MongoDB
+// Connect to MongoDB with proper error handling
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected Successfully"))
-  .catch(err => console.log("❌ DB Connection Error:", err));
+  .catch(err => {
+    console.error("❌ DB Connection Error:", err.message);
+    console.error("Check: 1) MongoDB URI is correct, 2) IP is whitelisted in Atlas, 3) Credentials are valid");
+  });
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected Successfully"))
-  .catch(err => console.log("❌ DB Connection Error:", err));
+// MongoDB connection event listeners
+mongoose.connection.on('connected', () => {
+  console.log('📡 Mongoose connected to MongoDB');
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ Mongoose connection error:', err.message);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('📴 Mongoose disconnected');
+});
 
 // --- ROUTE 1: Save or Update Profile ---
 app.post('/api/profile', async (req, res) => {
