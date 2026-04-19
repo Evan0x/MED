@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
-const GEMINI_API_KEY = "AIzaSyAwzMjLAyTpVAGElkcinXDZsA1CGhVibbQ"; // Replace with your free Gemini API key
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_KEY;
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 const SYSTEM_PROMPT = `You are MedBot, a compassionate and knowledgeable AI health assistant. You help users with:
 - Symptom checking and general health guidance
@@ -46,6 +46,10 @@ const QUICK_REPLIES = [
 ];
 
 async function callGemini(messages) {
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API key is missing. Please check your .env file.");
+  }
+
   const contents = messages
     .filter((m) => m.role !== "system")
     .map((m) => ({
@@ -65,7 +69,13 @@ async function callGemini(messages) {
 
   if (!response.ok) {
     const err = await response.json();
-    throw new Error(err?.error?.message || "Gemini API error");
+    const errorMessage = err?.error?.message || "Gemini API error";
+    console.error("Gemini API Error:", err);
+    
+    if (response.status === 400 && errorMessage.includes("API key")) {
+      throw new Error("Invalid API key. Please check your Gemini API key in the .env file.");
+    }
+    throw new Error(errorMessage);
   }
 
   const data = await response.json();
