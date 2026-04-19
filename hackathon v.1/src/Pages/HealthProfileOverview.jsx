@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../Supabase';
+import { AvelaLogo, AvelaWordmark } from '../Components/AvelaLogo';
 
 const HealthProfileOverview = () => {
   const { id } = useParams();
@@ -501,25 +502,8 @@ const HealthProfileOverview = () => {
                 gap: '8px',
                 marginBottom: '8px',
               }}>
-                <div style={{
-                  width: '24px',
-                  height: '24px',
-                  backgroundColor: '#0f766e',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '14px',
-                }}>
-                  ❤️
-                </div>
-                <span style={{
-                  fontSize: '16px',
-                  fontWeight: 700,
-                  color: '#1e293b',
-                }}>
-                  Med Map
-                </span>
+                <AvelaLogo size={26} />
+                <AvelaWordmark size={18} />
               </div>
               <p style={{
                 margin: '0 0 24px',

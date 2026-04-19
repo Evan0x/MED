@@ -1,5 +1,6 @@
 import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
+import { AvelaLogo, AvelaWordmark } from './AvelaLogo';
 
 const AuthHeader = ({ showBack, onBack }) => {
   const { user } = useUser();
@@ -38,20 +39,10 @@ const AuthHeader = ({ showBack, onBack }) => {
         )}
         <div
           onClick={() => navigate('/')}
-          style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+          style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
         >
-          <div style={{
-            width: '34px', height: '34px', borderRadius: '50%',
-            backgroundColor: '#0f766e',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
-              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-            </svg>
-          </div>
-          <span style={{ fontSize: '18px', fontWeight: 700, color: '#1e293b', letterSpacing: '-0.3px' }}>
-            Med Map
-          </span>
+          <AvelaLogo size={36} />
+          <AvelaWordmark size={22} />
         </div>
       </div>
 
@@ -60,21 +51,12 @@ const AuthHeader = ({ showBack, onBack }) => {
         <SignedOut>
           <SignInButton mode="modal">
             <button style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: '14px', fontWeight: 500, color: '#475569',
-              padding: '8px 14px', borderRadius: '8px',
-            }}>
-              Login
-            </button>
-          </SignInButton>
-          <SignInButton mode="modal">
-            <button style={{
               padding: '9px 22px', borderRadius: '24px',
               backgroundColor: '#f59e0b', border: 'none',
               color: 'white', fontWeight: 600, fontSize: '14px',
               cursor: 'pointer',
             }}>
-              Get Started
+              Sign in
             </button>
           </SignInButton>
         </SignedOut>
@@ -118,7 +100,7 @@ const AuthHeader = ({ showBack, onBack }) => {
                 </div>
               </div>
               <UserButton afterSignOutUrl="/">
-                <UserButton.MenuItems>
+                {/* <UserButton.MenuItems>
                   <UserButton.Action
                     label="Health Profile"
                     labelIcon={
@@ -128,7 +110,7 @@ const AuthHeader = ({ showBack, onBack }) => {
                     }
                     onClick={() => navigate('/profile')}
                   />
-                </UserButton.MenuItems>
+                </UserButton.MenuItems> */}
               </UserButton>
             </div>
           </div>

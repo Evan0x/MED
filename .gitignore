@@ -1,0 +1,10 @@
+node_modules
+.DS_Store
+*.log
+
+hackathon v.1/dist
+hackathon v.1/dist-ssr
+.env
+.env.local
+*.local
+.vercel
