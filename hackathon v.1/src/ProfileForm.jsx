@@ -17,7 +17,7 @@ const ProfileForm = () => {
   // Fetch their existing data when the component loads
   useEffect(() => {
     if (userId) {
-      fetch(`http://localhost:5000/api/profile/${userId}`)
+      fetch(`http://localhost:5001/api/profile/${userId}`)
         .then(res => res.json())
         .then(data => {
           // Check if data exists and has at least one key besides MongoDB's default _id
@@ -48,7 +48,7 @@ const ProfileForm = () => {
     setStatus('');
 
     try {
-      const response = await fetch('http://localhost:5000/api/profile', {
+      const response = await fetch('http://localhost:5001/api/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clerkUserId: userId, ...formData }),
