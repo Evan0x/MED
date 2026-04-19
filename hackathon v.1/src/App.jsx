@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/clerk-react";
 
+// 1. IMPORT THE PROFILE FORM HERE
+import ProfileForm from './ProfileForm'; 
+
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 function loadGoogleMaps(callback) {
@@ -115,6 +118,12 @@ const App = () => {
             <strong>Coordinates:</strong> {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
           </p>
         )}
+
+        {/* 2. RENDER THE PROFILE FORM HERE */}
+        <div style={{ marginTop: '40px' }}>
+          <ProfileForm />
+        </div>
+
       </div>
     </div>
   );
