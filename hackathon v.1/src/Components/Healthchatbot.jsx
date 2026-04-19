@@ -2,8 +2,11 @@ import { useState, useRef, useEffect } from "react";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_KEY;
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const TEAL = "rgb(15, 118, 110)";
+const TEAL_DARK = "rgb(10, 90, 84)";
+const TEAL_LIGHT = "rgba(15, 118, 110, 0.10)";
 
-const SYSTEM_PROMPT = `You are MedBot, a compassionate and knowledgeable AI health assistant. You help users with:
+const SYSTEM_PROMPT = `You are AvelaAI, a compassionate and knowledgeable AI health assistant. You help users with:
 - Symptom checking and general health guidance
 - Medication information and reminders
 - Nutrition and diet advice
@@ -19,36 +22,127 @@ IMPORTANT RULES:
 3. Be empathetic, clear, and supportive.
 4. If someone describes an emergency (chest pain, difficulty breathing, etc.), immediately tell them to call emergency services (911).
 5. Keep responses concise and easy to understand.
-6. Use bullet points for clarity when listing symptoms or recommendations.
+6. Use bullet points for clarity when listing symptoms or recommendations.`;
 
-You have the following skills:
-- 🩺 Symptom Assessment: Analyze symptoms and suggest possible causes
-- 💊 Medication Info: Explain medications, dosages, and side effects
-- 🥗 Nutrition Advice: Personalized diet and supplement recommendations
-- 🧠 Mental Wellness: Stress, anxiety, and mood support
-- 🏃 Fitness Guidance: Exercise plans and physical activity advice
-- 😴 Sleep Health: Sleep hygiene and insomnia tips`;
+// ── SVG Icons ──────────────────────────────────────────────────────────────────
+
+const IconStethoscope = ({ size = 18, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    {/* ear tubes */}
+    <path d="M6 3 C6 3 5 3 5 4 L5 9" />
+    <path d="M12 3 C12 3 13 3 13 4 L13 9" />
+    {/* chest piece arc */}
+    <path d="M5 9 C5 14 13 14 13 9" />
+    {/* tube down and loop */}
+    <path d="M9 14 L9 18 C9 20.5 12 20.5 12 18 L12 17" />
+    {/* diaphragm circle */}
+    <circle cx="12" cy="16" r="1.5" fill={color} stroke="none" />
+  </svg>
+);
+
+const IconPill = ({ size = 18, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.5 20H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H20a2 2 0 0 1 2 2v3" />
+    <circle cx="18" cy="18" r="4" />
+    <path d="m15.5 15.5 5 5" />
+  </svg>
+);
+
+const IconSalad = ({ size = 18, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M7 21h10" />
+    <path d="M12 21a9 9 0 0 0 9-9H3a9 9 0 0 0 9 9Z" />
+    <path d="M11.38 12a2.4 2.4 0 0 1-.4-4.77 2.4 2.4 0 0 1 3.2-3.19 2.4 2.4 0 0 1 3.47-.63 2.4 2.4 0 0 1 3.37 3.37 2.4 2.4 0 0 1-1.1 3.7 2.51 2.51 0 0 1 .03 1.5" />
+    <path d="m13 12 4-4" />
+  </svg>
+);
+
+const IconBrain = ({ size = 18, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+    <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+    <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
+    <path d="M17.599 6.5a3 3 0 0 0 .399-1.375" />
+    <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" />
+    <path d="M3.477 10.896a4 4 0 0 1 .585-.396" />
+    <path d="M19.938 10.5a4 4 0 0 1 .585.396" />
+    <path d="M6 18a4 4 0 0 1-1.967-.516" />
+    <path d="M19.967 17.484A4 4 0 0 1 18 18" />
+  </svg>
+);
+
+const IconRun = ({ size = 18, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="13" cy="4" r="1" />
+    <path d="M6 20v-6l2.5-3.5 3.5 3 3-3 2 3" />
+    <path d="m6 20 2-4" />
+    <path d="m18 14-1-4-5.5 1-3-2.5" />
+  </svg>
+);
+
+const IconMoon = ({ size = 18, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+  </svg>
+);
+
+const IconSend = ({ size = 16, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+    <path d="m22 2-7 20-4-9-9-4Z" />
+    <path d="M22 2 11 13" />
+  </svg>
+);
+
+const IconClose = ({ size = 16, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" style={{ display: "block" }}>
+    <path d="M18 6 6 18M6 6l12 12" />
+  </svg>
+);
+
+const IconAvelaAI = ({ size = 20 }) => (
+  <img
+    src="/avela-ai-logo.png"
+    alt="Avela AI"
+    width={size}
+    height={size}
+    style={{
+      width: size,
+      height: size,
+      objectFit: "contain",
+      display: "block",
+    }}
+  />
+);
+
+const IconAlert = ({ size = 14, color = "#7a6000" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+    <path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20z" />
+    <path d="M12 8v4M12 16h.01" />
+  </svg>
+);
+
+// ── Skill definitions ──────────────────────────────────────────────────────────
 
 const SKILLS = [
-  { icon: "🩺", label: "Check Symptoms", prompt: "I have some symptoms I'd like to check." },
-  { icon: "💊", label: "Medication Info", prompt: "I need information about a medication." },
-  { icon: "🥗", label: "Nutrition Advice", prompt: "Give me personalized nutrition advice." },
-  { icon: "🧠", label: "Mental Wellness", prompt: "I need support with stress or mental health." },
-  { icon: "🏃", label: "Fitness Tips", prompt: "Help me with exercise and fitness guidance." },
-  { icon: "😴", label: "Sleep Health", prompt: "I have trouble sleeping and need advice." },
+  { Icon: IconStethoscope, label: "Check Symptoms", prompt: "I have some symptoms I'd like to check." },
+  { Icon: IconPill,        label: "Medication Info", prompt: "I need information about a medication." },
+  { Icon: IconSalad,       label: "Nutrition",       prompt: "Give me personalized nutrition advice." },
+  { Icon: IconBrain,       label: "Mental Wellness", prompt: "I need support with stress or mental health." },
+  { Icon: IconRun,         label: "Fitness Tips",    prompt: "Help me with exercise and fitness guidance." },
+  { Icon: IconMoon,        label: "Sleep Health",    prompt: "I have trouble sleeping and need advice." },
 ];
 
 const QUICK_REPLIES = [
   "I have a headache",
-  "Help me with anxiety",
-  "Best foods for energy",
-  "Is this medication safe?",
+  "Help with anxiety",
+  "Foods for energy",
+  "Is this med safe?",
 ];
 
+// ── Gemini call ────────────────────────────────────────────────────────────────
+
 async function callGemini(messages) {
-  if (!GEMINI_API_KEY) {
-    throw new Error("Gemini API key is missing. Please check your .env file.");
-  }
+  if (!GEMINI_API_KEY) throw new Error("Gemini API key is missing.");
 
   const contents = messages
     .filter((m) => m.role !== "system")
@@ -69,25 +163,21 @@ async function callGemini(messages) {
 
   if (!response.ok) {
     const err = await response.json();
-    const errorMessage = err?.error?.message || "Gemini API error";
-    console.error("Gemini API Error:", err);
-    
-    if (response.status === 400 && errorMessage.includes("API key")) {
-      throw new Error("Invalid API key. Please check your Gemini API key in the .env file.");
-    }
-    throw new Error(errorMessage);
+    throw new Error(err?.error?.message || "Gemini API error");
   }
 
   const data = await response.json();
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response.";
 }
 
+// ── Component ──────────────────────────────────────────────────────────────────
+
 export default function HealthChatbot() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
     {
       role: "assistant",
-      content: "Hi! I'm **MedBot**, your AI health assistant. 👋\n\nI can help with symptoms, medications, nutrition, mental wellness, fitness, and sleep. How can I assist you today?\n\n⚠️ *I'm not a replacement for professional medical advice.*",
+      content: "Hi! I'm **AvelaAI**, your AI health assistant.\n\nI can help with symptoms, medications, nutrition, mental wellness, fitness, and sleep. How can I assist you today?\n\n*I'm not a replacement for professional medical advice.*",
     },
   ]);
   const [input, setInput] = useState("");
@@ -97,346 +187,232 @@ export default function HealthChatbot() {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
+    if (open) setTimeout(() => inputRef.current?.focus(), 100);
   }, [open]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const sendMessage = async (text) => {
+  const sendMessage = async (text, fromSkill = false) => {
     const userText = text || input.trim();
     if (!userText || loading) return;
-
     const newMessages = [...messages, { role: "user", content: userText }];
     setMessages(newMessages);
     setInput("");
     setLoading(true);
-    setActiveSkill(null);
-
+    // Only clear the active skill pill when the user types freely — not when clicking a pill
+    if (!fromSkill) setActiveSkill(null);
     try {
       const reply = await callGemini(newMessages);
       setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
     } catch (e) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `⚠️ Sorry, I ran into an error: ${e.message}. Please check your API key or try again.`,
-        },
-      ]);
+      setMessages((prev) => [...prev, { role: "assistant", content: `Sorry, I ran into an error: ${e.message}` }]);
     } finally {
       setLoading(false);
     }
   };
 
   const handleKey = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
-  const renderContent = (text) => {
-    return text
+  const renderContent = (text) =>
+    text
       .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.*?)\*/g, "<em>$1</em>")
       .replace(/\n/g, "<br/>");
-  };
+
+  const isStart = messages.length === 1 && !loading;
 
   return (
     <>
       {/* Floating Button */}
       <button
         onClick={() => setOpen((o) => !o)}
-        style={{
-          position: "fixed",
-          bottom: "28px",
-          right: "28px",
-          width: "60px",
-          height: "60px",
-          borderRadius: "50%",
-          background: "linear-gradient(135deg, #1a7f5a 0%, #0d5c40 100%)",
-          border: "none",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          boxShadow: "0 4px 20px rgba(26,127,90,0.45)",
-          zIndex: 9999,
-          transition: "transform 0.2s, box-shadow 0.2s",
-          fontSize: "26px",
-        }}
         title="Open Health Assistant"
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = "scale(1.08)";
-          e.currentTarget.style.boxShadow = "0 6px 28px rgba(26,127,90,0.55)";
+        style={{
+          position: "fixed", bottom: "28px", right: "28px",
+          width: "60px", height: "60px", borderRadius: "50%",
+          background: `linear-gradient(135deg, ${TEAL} 0%, ${TEAL_DARK} 100%)`,
+          border: "none", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 4px 20px rgba(15,118,110,0.45)",
+          zIndex: 9999, transition: "transform 0.2s, box-shadow 0.2s",
         }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = "scale(1)";
-          e.currentTarget.style.boxShadow = "0 4px 20px rgba(26,127,90,0.45)";
-        }}
+        onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.08)"; e.currentTarget.style.boxShadow = "0 6px 28px rgba(15,118,110,0.55)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(15,118,110,0.45)"; }}
       >
-        {open ? "✕" : "🩺"}
+        {open ? <IconClose size={20} color="#fff" /> : <IconAvelaAI size={36} />}
       </button>
 
       {/* Chat Window */}
       {open && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "100px",
-            right: "28px",
-            width: "390px",
-            maxHeight: "620px",
-            background: "#ffffff",
-            borderRadius: "20px",
-            boxShadow: "0 8px 48px rgba(0,0,0,0.18)",
-            display: "flex",
-            flexDirection: "column",
-            zIndex: 9998,
-            fontFamily: "'Segoe UI', system-ui, sans-serif",
-            overflow: "hidden",
-            border: "1px solid rgba(26,127,90,0.12)",
-          }}
-        >
+        <div style={{
+          position: "fixed", bottom: "100px", right: "28px",
+          width: "390px", maxHeight: "640px",
+          background: "#fff", borderRadius: "20px",
+          boxShadow: "0 8px 48px rgba(0,0,0,0.18)",
+          display: "flex", flexDirection: "column",
+          zIndex: 9998, fontFamily: "'Segoe UI', system-ui, sans-serif",
+          overflow: "hidden", border: `1px solid ${TEAL_LIGHT}`,
+        }}>
+
           {/* Header */}
-          <div
-            style={{
-              background: "linear-gradient(135deg, #1a7f5a 0%, #0d5c40 100%)",
-              padding: "16px 20px",
-              display: "flex",
-              alignItems: "center",
-              gap: "12px",
-            }}
-          >
-            <div
-              style={{
-                width: "42px",
-                height: "42px",
-                borderRadius: "50%",
-                background: "rgba(255,255,255,0.2)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "20px",
-                flexShrink: 0,
-              }}
-            >
-              🩺
+          <div style={{
+            background: `linear-gradient(135deg, ${TEAL} 0%, ${TEAL_DARK} 100%)`,
+            padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px",
+          }}>
+            <div style={{
+              width: "42px", height: "42px", borderRadius: "50%",
+              background: "#fff", flexShrink: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.12)",
+            }}>
+              <IconAvelaAI size={32} />
             </div>
             <div style={{ flex: 1 }}>
-              <p style={{ margin: 0, color: "#fff", fontWeight: 600, fontSize: "15px" }}>MedBot</p>
-              <p style={{ margin: 0, color: "rgba(255,255,255,0.75)", fontSize: "12px" }}>
-                AI Health Assistant · Online
-              </p>
+              <p style={{
+                margin: 0, color: "#fff", fontWeight: 700, fontSize: "16px",
+                fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
+                letterSpacing: "-0.01em",
+              }}>AvelaAI</p>
+              <p style={{ margin: 0, color: "rgba(255,255,255,0.75)", fontSize: "12px" }}>AI Health Assistant · Online</p>
             </div>
-            <div style={{ display: "flex", gap: "6px" }}>
-              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#7ee8a2" }} />
-            </div>
+            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#7ee8a2" }} />
           </div>
 
           {/* Skills Bar */}
-          <div
-            style={{
-              padding: "10px 12px",
-              borderBottom: "1px solid #f0f0f0",
-              display: "flex",
-              gap: "6px",
-              overflowX: "auto",
-              background: "#fafdf9",
-              scrollbarWidth: "none",
-            }}
-          >
-            {SKILLS.map((skill) => (
-              <button
-                key={skill.label}
-                onClick={() => {
-                  setActiveSkill(skill.label);
-                  sendMessage(skill.prompt);
-                }}
-                style={{
-                  flexShrink: 0,
-                  padding: "5px 10px",
-                  borderRadius: "20px",
-                  border: `1px solid ${activeSkill === skill.label ? "#1a7f5a" : "#e0e0e0"}`,
-                  background: activeSkill === skill.label ? "#e8f5ee" : "#fff",
-                  color: activeSkill === skill.label ? "#1a7f5a" : "#555",
-                  fontSize: "11.5px",
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  fontWeight: activeSkill === skill.label ? 600 : 400,
-                  transition: "all 0.15s",
-                }}
-              >
-                {skill.icon} {skill.label}
-              </button>
-            ))}
+          <div style={{
+            padding: "10px 12px", borderBottom: "1px solid #f0f0f0",
+            display: "flex", gap: "6px", overflowX: "auto",
+            background: "#fafefe", scrollbarWidth: "none",
+          }}>
+            {SKILLS.map((skill) => {
+              const active = activeSkill === skill.label;
+              return (
+                <button
+                  key={skill.label}
+                  onClick={() => { setActiveSkill(skill.label); sendMessage(skill.prompt, true); }}
+                  style={{
+                    flexShrink: 0,
+                    padding: "5px 10px",
+                    borderRadius: "20px",
+                    border: `1px solid ${active ? TEAL : "#e0e0e0"}`,
+                    background: active ? TEAL_LIGHT : "#fff",
+                    color: active ? TEAL : "#555",
+                    fontSize: "11.5px", cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    fontWeight: active ? 600 : 400,
+                    display: "flex", alignItems: "center", gap: "5px",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <skill.Icon size={13} color={active ? TEAL : "#888"} />
+                  {skill.label}
+                </button>
+              );
+            })}
           </div>
 
           {/* Messages */}
-          <div
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: "16px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "12px",
-              background: "#f8fdf9",
-            }}
-          >
+          <div style={{
+            flex: 1, overflowY: "auto", padding: "16px",
+            display: "flex", flexDirection: "column", gap: "12px",
+            background: "#f8fefe",
+          }}>
             {messages.map((msg, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-                  alignItems: "flex-end",
-                  gap: "8px",
-                }}
-              >
+              <div key={i} style={{
+                display: "flex",
+                justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+                alignItems: "flex-end", gap: "8px",
+              }}>
                 {msg.role === "assistant" && (
-                  <div
-                    style={{
-                      width: "28px",
-                      height: "28px",
-                      borderRadius: "50%",
-                      background: "linear-gradient(135deg,#1a7f5a,#0d5c40)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: "13px",
-                      flexShrink: 0,
-                    }}
-                  >
-                    🩺
-                  </div>
+                  <IconAvelaAI size={28} />
                 )}
                 <div
                   style={{
-                    maxWidth: "82%",
-                    padding: "10px 14px",
+                    maxWidth: "82%", padding: "10px 14px",
                     borderRadius: msg.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                    background: msg.role === "user" ? "linear-gradient(135deg,#1a7f5a,#0d5c40)" : "#fff",
+                    background: msg.role === "user"
+                      ? `linear-gradient(135deg, ${TEAL}, ${TEAL_DARK})`
+                      : "#fff",
                     color: msg.role === "user" ? "#fff" : "#2d2d2d",
-                    fontSize: "13.5px",
-                    lineHeight: "1.55",
+                    fontSize: "13.5px", lineHeight: "1.6",
                     boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
-                    border: msg.role === "assistant" ? "1px solid rgba(26,127,90,0.1)" : "none",
+                    border: msg.role === "assistant" ? `1px solid ${TEAL_LIGHT}` : "none",
+                    wordBreak: "break-word",
                   }}
                   dangerouslySetInnerHTML={{ __html: renderContent(msg.content) }}
                 />
               </div>
             ))}
 
+            {/* Loading dots */}
             {loading && (
               <div style={{ display: "flex", alignItems: "flex-end", gap: "8px" }}>
-                <div
-                  style={{
-                    width: "28px",
-                    height: "28px",
-                    borderRadius: "50%",
-                    background: "linear-gradient(135deg,#1a7f5a,#0d5c40)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "13px",
-                  }}
-                >
-                  🩺
-                </div>
-                <div
-                  style={{
-                    background: "#fff",
-                    border: "1px solid rgba(26,127,90,0.1)",
-                    borderRadius: "18px 18px 18px 4px",
-                    padding: "12px 16px",
-                    display: "flex",
-                    gap: "4px",
-                    alignItems: "center",
-                  }}
-                >
+                <IconAvelaAI size={28} />
+                <div style={{
+                  background: "#fff", border: `1px solid ${TEAL_LIGHT}`,
+                  borderRadius: "18px 18px 18px 4px", padding: "12px 16px",
+                  display: "flex", gap: "4px", alignItems: "center",
+                }}>
                   {[0, 1, 2].map((d) => (
-                    <div
-                      key={d}
-                      style={{
-                        width: "7px",
-                        height: "7px",
-                        borderRadius: "50%",
-                        background: "#1a7f5a",
-                        animation: "bounce 1.2s infinite",
-                        animationDelay: `${d * 0.2}s`,
-                        opacity: 0.7,
-                      }}
-                    />
+                    <div key={d} style={{
+                      width: "7px", height: "7px", borderRadius: "50%",
+                      background: TEAL, opacity: 0.7,
+                      animation: "bounce 1.2s infinite",
+                      animationDelay: `${d * 0.2}s`,
+                    }} />
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Quick Replies (only at start) */}
-            {messages.length === 1 && !loading && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
-                {QUICK_REPLIES.map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => sendMessage(q)}
-                    style={{
-                      padding: "6px 12px",
-                      borderRadius: "16px",
-                      border: "1px solid #1a7f5a",
-                      background: "transparent",
-                      color: "#1a7f5a",
-                      fontSize: "12px",
-                      cursor: "pointer",
-                      transition: "all 0.15s",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "#1a7f5a";
-                      e.currentTarget.style.color = "#fff";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "transparent";
-                      e.currentTarget.style.color = "#1a7f5a";
-                    }}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* Quick replies placeholder — always reserves space to prevent layout jump */}
+            <div style={{ minHeight: "36px", alignSelf: "flex-start" }}>
+              {isStart && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {QUICK_REPLIES.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => sendMessage(q)}
+                      style={{
+                        padding: "6px 12px", borderRadius: "16px",
+                        border: `1px solid ${TEAL}`,
+                        background: "transparent", color: TEAL,
+                        fontSize: "12px", cursor: "pointer", lineHeight: 1.4,
+                        transition: "all 0.15s", whiteSpace: "nowrap",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = TEAL; e.currentTarget.style.color = "#fff"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = TEAL; }}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div ref={bottomRef} />
           </div>
 
           {/* Disclaimer */}
-          <div
-            style={{
-              padding: "6px 14px",
-              background: "#fff8e1",
-              borderTop: "1px solid #ffe082",
-              fontSize: "10.5px",
-              color: "#7a6000",
-              textAlign: "center",
-            }}
-          >
-            ⚕️ For emergencies, call 911. MedBot does not replace professional medical advice.
+          <div style={{
+            padding: "6px 14px", background: "#fff8e1",
+            borderTop: "1px solid #ffe082",
+            fontSize: "10.5px", color: "#7a6000",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: "5px",
+          }}>
+            <IconAlert size={12} color="#7a6000" />
+            For emergencies, call 911. AvelaAI does not replace professional medical advice.
           </div>
 
           {/* Input */}
-          <div
-            style={{
-              padding: "12px 14px",
-              borderTop: "1px solid #f0f0f0",
-              display: "flex",
-              gap: "8px",
-              background: "#fff",
-              alignItems: "flex-end",
-            }}
-          >
+          <div style={{
+            padding: "12px 14px", borderTop: "1px solid #f0f0f0",
+            display: "flex", gap: "8px", background: "#fff", alignItems: "flex-end",
+          }}>
             <textarea
               ref={inputRef}
               value={input}
@@ -445,42 +421,28 @@ export default function HealthChatbot() {
               placeholder="Ask about symptoms, medications, diet..."
               rows={1}
               style={{
-                flex: 1,
-                border: "1.5px solid #e0e0e0",
-                borderRadius: "12px",
-                padding: "9px 12px",
-                fontSize: "13.5px",
-                resize: "none",
-                outline: "none",
-                fontFamily: "inherit",
-                color: "#2d2d2d",
-                lineHeight: "1.4",
-                maxHeight: "80px",
-                overflowY: "auto",
+                flex: 1, border: "1.5px solid #e0e0e0", borderRadius: "12px",
+                padding: "9px 12px", fontSize: "13.5px", resize: "none",
+                outline: "none", fontFamily: "inherit", color: "#2d2d2d",
+                lineHeight: "1.4", maxHeight: "80px", overflowY: "auto",
                 transition: "border-color 0.15s",
               }}
-              onFocus={(e) => (e.target.style.borderColor = "#1a7f5a")}
+              onFocus={(e) => (e.target.style.borderColor = TEAL)}
               onBlur={(e) => (e.target.style.borderColor = "#e0e0e0")}
             />
             <button
               onClick={() => sendMessage()}
               disabled={loading || !input.trim()}
               style={{
-                width: "40px",
-                height: "40px",
-                borderRadius: "12px",
-                background: loading || !input.trim() ? "#e0e0e0" : "linear-gradient(135deg,#1a7f5a,#0d5c40)",
+                width: "40px", height: "40px", borderRadius: "12px",
+                background: loading || !input.trim() ? "#e0e0e0" : `linear-gradient(135deg, ${TEAL}, ${TEAL_DARK})`,
                 border: "none",
                 cursor: loading || !input.trim() ? "not-allowed" : "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "16px",
-                transition: "all 0.15s",
-                flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0, transition: "all 0.15s",
               }}
             >
-              ➤
+              <IconSend size={16} color={loading || !input.trim() ? "#aaa" : "#fff"} />
             </button>
           </div>
         </div>

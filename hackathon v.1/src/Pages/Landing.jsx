@@ -108,7 +108,7 @@ const Landing = () => {
   ];
 
   return (
-    <div style={{width: '100%', minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <div style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden' }}>
       <AuthHeader />
 
       {/* Hero */}
@@ -120,8 +120,7 @@ const Landing = () => {
         justifyContent: 'center',
         position: 'relative',
         overflow: 'hidden',
-        minHeight: 'calc(100vh - 64px)',
-        padding: '60px 20px 80px',
+        padding: '20px 20px 40px',
       }}>
         {/* Background image */}
         <div style={{
@@ -139,12 +138,12 @@ const Landing = () => {
         }} />
 
         {/* Content */}
-        <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '700px', textAlign: 'center', marginBottom: '200px'}}>
+        <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '700px', textAlign: 'center' }}>
           <h1 style={{
-            fontSize: 'clamp(36px, 6vw, 56px)',
+            fontSize: 'clamp(32px, 5vw, 52px)',
             fontWeight: 800,
             lineHeight: 1.15,
-            margin: '0 0 12px',
+            margin: '0 0 8px',
             letterSpacing: '-1px',
           }}>
             <span style={{ color: '#1e293b' }}>Find the right care,</span>
@@ -160,7 +159,7 @@ const Landing = () => {
             borderRadius: '18px',
             padding: '6px 6px 6px 20px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.14)',
-            marginTop: '36px',
+            marginTop: '28px',
             border: '1px solid rgba(255,255,255,0.8)',
           }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" style={{ flexShrink: 0 }}>
@@ -244,7 +243,7 @@ const Landing = () => {
           <div style={{
             display: 'flex',
             gap: '32px',
-            marginTop: '44px',
+            marginTop: '28px',
             justifyContent: 'center',
             flexWrap: 'wrap',
           }}>

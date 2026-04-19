@@ -116,48 +116,129 @@ function calculateInsuranceScore(place) {
 
 // ── Category & section config ─────────────────────────────────────────────────
 
+// Reject non-human / irrelevant results (animal clinics, vet pharmacies, pet stores, etc.)
+const ANIMAL_TYPES = new Set(['veterinary_care', 'pet_store', 'zoo', 'aquarium']);
+const ANIMAL_NAME_PATTERNS = [
+  'veterinar', 'vet ', 'vet-', ' vet', 'animal', 'pet ', 'pets ', ' pets', 'pet-',
+  'canine', 'feline', 'equine', 'kennel', 'dog ', 'cat ', 'avian', 'reptile',
+  'wildlife', 'zoo', 'aquarium', 'groomer', 'grooming',
+];
+function isHumanOriented(place) {
+  const types = place.types ?? [];
+  if (types.some((t) => ANIMAL_TYPES.has(t))) return false;
+  const name = ` ${(place.name ?? '').toLowerCase()} `;
+  if (ANIMAL_NAME_PATTERNS.some((kw) => name.includes(kw))) return false;
+  return true;
+}
+
+// Irrelevant retail types that sometimes surface in medical searches
+const RETAIL_NOISE_TYPES = new Set([
+  'clothing_store', 'shoe_store', 'jewelry_store', 'book_store',
+  'home_goods_store', 'furniture_store', 'hardware_store', 'electronics_store',
+  'liquor_store', 'bar', 'night_club', 'gas_station', 'car_repair',
+  'beauty_salon', 'hair_care', 'spa',
+]);
+function hasRetailNoise(place) {
+  const types = place.types ?? [];
+  return types.some((t) => RETAIL_NOISE_TYPES.has(t));
+}
+
 const SECTIONS = [
   {
-    id: 'medical', label: 'Medical',
+    id: 'medical', label: 'Get Well',
     icon: '🏥',
+    accent: '#0f766e',
+    accentSoft: '#ecfdf5',
     categories: [
-      { id: 'pharmacy', label: 'Pharmacy', searchParams: { type: 'pharmacy' }, filter: (p) => (p.types ?? []).includes('pharmacy') },
-      { id: 'er', label: 'ER / Emergency', searchParams: { type: 'hospital', keyword: 'emergency' }, filter: (p) => (p.types ?? []).includes('hospital') },
-      { id: 'dentist', label: 'Dentist', searchParams: { type: 'dentist' }, filter: (p) => (p.types ?? []).includes('dentist') },
+      {
+        id: 'pharmacy', label: 'Pharmacy',
+        icon: '💊',
+        searchParams: { type: 'pharmacy' },
+        filter: (p) => {
+          const types = p.types ?? [];
+          const name = (p.name ?? '').toLowerCase();
+          if (!isHumanOriented(p)) return false;
+          if (hasRetailNoise(p)) return false;
+          // Must be a pharmacy OR drugstore (type 'drugstore' is newer Google Places type)
+          const isPharmacy = types.includes('pharmacy') || types.includes('drugstore');
+          const nameLooksLikePharmacy =
+            name.includes('pharmacy') || name.includes('drugstore') || name.includes('drug store') ||
+            name.includes('chemist') || name.includes('apothecary') || name.includes('rx');
+          return isPharmacy || nameLooksLikePharmacy;
+        },
+      },
+      {
+        id: 'er', label: 'ER / Emergency',
+        icon: '🚑',
+        searchParams: { type: 'hospital', keyword: 'emergency' },
+        filter: (p) => {
+          const types = p.types ?? [];
+          if (!isHumanOriented(p)) return false;
+          return types.includes('hospital');
+        },
+      },
+      {
+        id: 'dentist', label: 'Dentist',
+        icon: '🦷',
+        searchParams: { type: 'dentist' },
+        filter: (p) => {
+          const types = p.types ?? [];
+          const name = (p.name ?? '').toLowerCase();
+          if (!isHumanOriented(p)) return false;
+          return types.includes('dentist') || name.includes('dental') || name.includes('orthodont') || name.includes('dentist');
+        },
+      },
       {
         id: 'clinic', label: 'Clinic',
+        icon: '🩺',
         searchParams: { type: 'doctor', keyword: 'clinic urgent care walk-in' },
         filter: (p) => {
-          const types = p.types ?? []; const name = (p.name ?? '').toLowerCase();
-          return types.includes('doctor') || types.includes('health') || name.includes('clinic') || name.includes('urgent') || name.includes('walk-in') || name.includes('walk in');
+          const types = p.types ?? [];
+          const name = (p.name ?? '').toLowerCase();
+          if (!isHumanOriented(p)) return false;
+          if (hasRetailNoise(p)) return false;
+          return types.includes('doctor') || types.includes('health') ||
+            name.includes('clinic') || name.includes('urgent') ||
+            name.includes('walk-in') || name.includes('walk in') ||
+            name.includes('medical') || name.includes('physician');
         },
       },
       {
         id: 'optician', label: 'Optician',
+        icon: '👓',
         searchParams: { keyword: 'optician optometrist eye care vision' },
-        filter: (p) => { const name = (p.name ?? '').toLowerCase(); return name.includes('optic') || name.includes('optom') || name.includes('vision') || name.includes('eye') || name.includes('lens') || name.includes('spectacl') || name.includes('eyeglass'); },
+        filter: (p) => {
+          const name = (p.name ?? '').toLowerCase();
+          if (!isHumanOriented(p)) return false;
+          if (hasRetailNoise(p)) return false;
+          return name.includes('optic') || name.includes('optom') || name.includes('vision') ||
+            name.includes('eye') || name.includes('lens') || name.includes('spectacl') ||
+            name.includes('eyeglass') || name.includes('eyewear');
+        },
       },
     ],
   },
   {
-    id: 'wellness', label: 'Wellness',
+    id: 'wellness', label: 'Stay Well',
     icon: '🌿',
+    accent: '#15803d',
+    accentSoft: '#f0fdf4',
     categories: [
       {
-        id: 'gym', label: 'Gym', searchParams: { type: 'gym' },
+        id: 'gym', label: 'Gym', icon: '🏋️', searchParams: { type: 'gym' },
         filter: (p) => { const types = p.types ?? []; const name = (p.name ?? '').toLowerCase(); return types.includes('gym') || name.includes('gym') || name.includes('fitness') || name.includes('crossfit') || name.includes('yoga') || name.includes('pilates'); },
       },
-      { id: 'outdoor', label: 'Outdoor Space', searchParams: { type: 'park' }, filter: (p) => { const types = p.types ?? []; return types.includes('park') || types.includes('natural_feature') || types.includes('campground') || types.includes('stadium'); } },
+      { id: 'outdoor', label: 'Outdoor Space', icon: '🌳', searchParams: { type: 'park' }, filter: (p) => { const types = p.types ?? []; return types.includes('park') || types.includes('natural_feature') || types.includes('campground') || types.includes('stadium'); } },
       {
-        id: 'community', label: 'Community Center', searchParams: { keyword: 'community center recreation center' },
+        id: 'community', label: 'Community Center', icon: '🏛️', searchParams: { keyword: 'community center recreation center' },
         filter: (p) => { const name = (p.name ?? '').toLowerCase(); return name.includes('community') || name.includes('recreation') || name.includes('rec ') || name.includes('civic') || name.includes('centre') || name.includes('center') || name.includes('ymca') || name.includes('ywca'); },
       },
       {
-        id: 'therapist', label: 'Therapist', searchParams: { keyword: 'therapist counseling mental health psychology' },
+        id: 'therapist', label: 'Therapist', icon: '🧠', searchParams: { keyword: 'therapist counseling mental health psychology' },
         filter: (p) => { const types = p.types ?? []; const name = (p.name ?? '').toLowerCase(); return types.includes('physiotherapist') || name.includes('therap') || name.includes('counsel') || name.includes('mental') || name.includes('psych') || name.includes('behav'); },
       },
       {
-        id: 'healthy_eating', label: 'Healthy Eating', searchParams: { keyword: 'healthy organic vegan salad juice bar' },
+        id: 'healthy_eating', label: 'Healthy Eating', icon: '🥗', searchParams: { keyword: 'healthy organic vegan salad juice bar' },
         filter: (p) => {
           const types = p.types ?? []; const name = (p.name ?? '').toLowerCase();
           const foodTypes = ['restaurant', 'food', 'cafe', 'bakery', 'meal_takeaway', 'meal_delivery', 'health_food_store', 'grocery_or_supermarket'];
@@ -181,15 +262,33 @@ const AMBER = '#f59e0b';
 
 // ── Result Card ───────────────────────────────────────────────────────────────
 
-const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, onClick }) => {
+const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, onClick, flush = false, fallbackIcon = '🏥' }) => {
   const [hovered, setHovered] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   const photoUrl = place.photos?.[0]?.getUrl?.({ maxWidth: 160, maxHeight: 160 });
+  const showImage = photoUrl && !imageFailed;
   const isOpen = place.opening_hours?.open_now;
   const insuranceScore = showInsuranceIndicator ? calculateInsuranceScore(place) : 0;
 
   const labelColor = label === 'Best Overall'
     ? { bg: '#f0fdf4', color: TEAL, border: '#bbf7d0' }
     : { bg: '#fffbeb', color: '#92400e', border: '#fde68a' };
+
+  const standaloneStyle = {
+    borderRadius: '14px',
+    border: `1px solid ${hovered ? '#cbd5e1' : '#e2e8f0'}`,
+    marginBottom: '12px',
+    backgroundColor: hovered ? '#f8fafc' : 'white',
+    boxShadow: hovered ? '0 4px 16px rgba(0,0,0,0.08)' : '0 1px 4px rgba(0,0,0,0.04)',
+  };
+
+  const flushStyle = {
+    borderRadius: 0,
+    border: 'none',
+    marginBottom: 0,
+    backgroundColor: hovered ? '#f8fafc' : 'transparent',
+    boxShadow: 'none',
+  };
 
   return (
     <div
@@ -199,15 +298,11 @@ const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, o
       style={{
         display: 'flex',
         gap: '14px',
-        padding: '16px',
-        borderRadius: '14px',
-        border: `1px solid ${hovered ? '#cbd5e1' : '#e2e8f0'}`,
+        padding: flush ? '14px 16px' : '16px',
         cursor: 'pointer',
-        marginBottom: '12px',
-        backgroundColor: hovered ? '#f8fafc' : 'white',
         transition: 'all 0.15s ease',
-        boxShadow: hovered ? '0 4px 16px rgba(0,0,0,0.08)' : '0 1px 4px rgba(0,0,0,0.04)',
         alignItems: 'flex-start',
+        ...(flush ? flushStyle : standaloneStyle),
       }}
     >
       {/* Thumbnail */}
@@ -216,10 +311,15 @@ const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, o
         backgroundColor: '#f1f5f9',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        {photoUrl ? (
-          <img src={photoUrl} alt={place.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        {showImage ? (
+          <img
+            src={photoUrl}
+            alt={place.name}
+            onError={() => setImageFailed(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
         ) : (
-          <span style={{ fontSize: '28px' }}>🏥</span>
+          <span style={{ fontSize: '32px', lineHeight: 1 }} role="img" aria-label="No photo available">{fallbackIcon}</span>
         )}
       </div>
 
@@ -455,13 +555,14 @@ const Results = () => {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* ── Left panel: results list ── */}
         <div style={{
-          width: '480px', flexShrink: 0,
+          width: '40%', minWidth: '440px', maxWidth: '640px', flexShrink: 0,
           display: 'flex', flexDirection: 'column',
           borderRight: '1px solid #e2e8f0',
           overflow: 'hidden',
+          backgroundColor: '#fafbfc',
         }}>
           {/* Panel header */}
-          <div style={{ padding: '20px 20px 0', flexShrink: 0 }}>
+          <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
             <h2 style={{ margin: '0 0 4px', fontSize: '20px', fontWeight: 700, color: '#1e293b' }}>
               Healthcare near{' '}
               <span style={{ color: TEAL }}>{cityName}</span>
@@ -477,65 +578,112 @@ const Results = () => {
               </p>
             )}
 
-            {/* Section tabs */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-              {SECTIONS.map((section, i) => (
-                <button
-                  key={section.id}
-                  onClick={() => setActiveSection(i)}
-                  style={{
-                    padding: '8px 18px', borderRadius: '24px', border: 'none',
-                    backgroundColor: activeSection === i ? TEAL : '#f1f5f9',
-                    color: activeSection === i ? 'white' : '#475569',
-                    fontWeight: 600, fontSize: '13px', cursor: 'pointer',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {section.icon} {section.label}
-                </button>
-              ))}
+            {/* Section selector — segmented control */}
+            <div
+              role="tablist"
+              aria-label="Section"
+              style={{
+                display: 'inline-flex',
+                padding: '4px',
+                gap: '4px',
+                backgroundColor: '#e7ecf1',
+                border: '1px solid #d8dfe6',
+                borderRadius: '12px',
+                marginBottom: '14px',
+                width: '100%',
+                boxSizing: 'border-box',
+              }}
+            >
+              {SECTIONS.map((section, i) => {
+                const active = activeSection === i;
+                return (
+                  <button
+                    key={section.id}
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setActiveSection(i)}
+                    style={{
+                      flex: 1,
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                      padding: '9px 14px', borderRadius: '9px', border: 'none',
+                      backgroundColor: active ? 'white' : 'transparent',
+                      color: active ? '#0f172a' : '#64748b',
+                      fontWeight: 700, fontSize: '13px', cursor: 'pointer',
+                      boxShadow: active ? '0 1px 2px rgba(15,23,42,0.08), 0 1px 3px rgba(15,23,42,0.06)' : 'none',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <span style={{ fontSize: '15px' }}>{section.icon}</span>
+                    <span>{section.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Filter bar */}
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px', alignItems: 'center' }}>
+            {/* Filter / sort toolbar */}
+            <div style={{
+              display: 'flex', gap: '8px', alignItems: 'center',
+              padding: '8px 10px',
+              marginBottom: '16px',
+              backgroundColor: 'white',
+              border: '1px solid #e2e8f0',
+              borderRadius: '12px',
+              boxShadow: '0 1px 2px rgba(15,23,42,0.03)',
+            }}>
               <button
                 onClick={() => setExcludeClosed(!excludeClosed)}
+                aria-pressed={excludeClosed}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: '6px',
-                  padding: '7px 14px', borderRadius: '20px',
+                  display: 'inline-flex', alignItems: 'center', gap: '6px',
+                  padding: '7px 14px', borderRadius: '999px',
                   border: `1px solid ${excludeClosed ? TEAL : '#e2e8f0'}`,
-                  backgroundColor: excludeClosed ? '#f0fdf4' : 'white',
-                  color: excludeClosed ? TEAL : '#475569',
-                  fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                  backgroundColor: excludeClosed ? TEAL : 'white',
+                  color: excludeClosed ? 'white' : '#475569',
+                  fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                  transition: 'all 0.15s',
                 }}
               >
-                🕐 Open Now
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%',
+                    backgroundColor: excludeClosed ? 'white' : '#16a34a',
+                  }}
+                />
+                Open now
               </button>
 
-              <select
-                value={secondSortMethod}
-                onChange={(e) => setSecondSortMethod(e.target.value)}
-                style={{
-                  padding: '7px 12px', borderRadius: '20px',
-                  border: '1px solid #e2e8f0',
-                  backgroundColor: 'white', color: '#475569',
-                  fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                  appearance: 'none', paddingRight: '28px',
-                  backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")',
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 10px center',
-                }}
-              >
-                <option value="" disabled>Sort by…</option>
-                {SORT_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>⇅ {opt.label}</option>
-                ))}
-              </select>
+              <div style={{ width: '1px', alignSelf: 'stretch', backgroundColor: '#e2e8f0' }} />
+
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', flexShrink: 0 }}>
+                  Sort
+                </span>
+                <select
+                  value={secondSortMethod}
+                  onChange={(e) => setSecondSortMethod(e.target.value)}
+                  style={{
+                    flex: 1, minWidth: 0,
+                    padding: '7px 28px 7px 12px', borderRadius: '999px',
+                    border: '1px solid #e2e8f0',
+                    backgroundColor: '#f8fafc', color: '#1e293b',
+                    fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                    appearance: 'none',
+                    backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")',
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 10px center',
+                  }}
+                >
+                  {SORT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
 
           {/* Scrollable results */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px' }}>
             {loadingStatus && (
               <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
                 <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔍</div>
@@ -554,16 +702,58 @@ const Results = () => {
                 ? getSecondResult(allPlaces, secondSortMethod, bestOverall.place_id)
                 : null;
               const sortLabel = SORT_OPTIONS.find((o) => o.value === secondSortMethod)?.label ?? 'Alternative';
+              const sectionAccent = SECTIONS[activeSection].accent ?? TEAL;
+              const sectionAccentSoft = SECTIONS[activeSection].accentSoft ?? '#ecfdf5';
+              const count = (bestOverall ? 1 : 0) + (secondResult ? 1 : 0);
 
               return (
-                <div key={cat.id} style={{ marginBottom: '8px' }}>
+                <div
+                  key={cat.id}
+                  style={{
+                    marginBottom: '22px',
+                    backgroundColor: 'white',
+                    border: '1px solid #e2e8f0',
+                    borderLeft: `4px solid ${sectionAccent}`,
+                    borderRadius: '14px',
+                    overflow: 'hidden',
+                    boxShadow: '0 1px 3px rgba(15,23,42,0.05)',
+                  }}
+                >
+                  {/* Group header — visually fused with the cards below */}
                   <div style={{
-                    fontSize: '11px', fontWeight: 700, color: '#94a3b8',
-                    textTransform: 'uppercase', letterSpacing: '1px',
-                    padding: '12px 0 8px',
+                    display: 'flex', alignItems: 'center', gap: '12px',
+                    padding: '14px 16px',
+                    background: `linear-gradient(180deg, ${sectionAccentSoft} 0%, #ffffff 100%)`,
+                    borderBottom: '1px solid #eef2f6',
                   }}>
-                    {cat.label}
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: '40px', height: '40px', borderRadius: '12px',
+                      backgroundColor: 'white',
+                      border: `1px solid ${sectionAccent}33`,
+                      boxShadow: '0 1px 2px rgba(15,23,42,0.06)',
+                      fontSize: '22px', lineHeight: 1, flexShrink: 0,
+                    }}>
+                      <span role="img" aria-hidden="true">{cat.icon ?? '🏥'}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 0 }}>
+                      <span style={{
+                        fontSize: '18px', fontWeight: 800, color: '#0f172a',
+                        letterSpacing: '-0.01em',
+                      }}>
+                        {cat.label}
+                      </span>
+                      <span style={{
+                        fontSize: '11px', fontWeight: 700, color: '#94a3b8',
+                        textTransform: 'uppercase', letterSpacing: '0.6px',
+                        marginTop: '2px',
+                      }}>
+                        {count} {count === 1 ? 'match' : 'matches'}
+                      </span>
+                    </div>
                   </div>
+
+                  {/* Nested, flush result cards — divider between them to signal grouping */}
                   {bestOverall && (
                     <ResultCard
                       place={bestOverall}
@@ -572,7 +762,12 @@ const Results = () => {
                       details={placeDetails[bestOverall.place_id]}
                       showInsuranceIndicator={secondSortMethod === 'insurance'}
                       onClick={() => setSelectedPlace(bestOverall)}
+                      flush
+                      fallbackIcon={cat.icon ?? '🏥'}
                     />
+                  )}
+                  {bestOverall && secondResult && (
+                    <div style={{ height: '1px', backgroundColor: '#eef2f6', margin: '0 16px' }} />
                   )}
                   {secondResult && (
                     <ResultCard
@@ -582,6 +777,8 @@ const Results = () => {
                       details={placeDetails[secondResult.place_id]}
                       showInsuranceIndicator={secondSortMethod === 'insurance'}
                       onClick={() => setSelectedPlace(secondResult)}
+                      flush
+                      fallbackIcon={cat.icon ?? '🏥'}
                     />
                   )}
                 </div>
