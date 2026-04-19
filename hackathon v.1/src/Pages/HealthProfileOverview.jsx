@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
+import { supabase } from '../Supabase';
 
 const HealthProfileOverview = () => {
   const { id } = useParams();
@@ -7,41 +8,28 @@ const HealthProfileOverview = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadProfile = () => {
-      // First try reading from URL hash (works cross-device)
-      const hash = window.location.hash.slice(1);
-      if (hash) {
-        try {
-          const decoded = JSON.parse(decodeURIComponent(escape(atob(hash))));
-          const nameParts = (decoded.n || '').split(' ');
-          setProfile({
-            firstName: nameParts[0] || '',
-            lastName: nameParts.slice(1).join(' ') || '',
-            bloodType: decoded.b || '',
-            allergies: decoded.a || '',
-            conditions: decoded.c || '',
-            medications: decoded.m || '',
-            pastProcedures: decoded.p || '',
-            emergencyName: decoded.en || '',
-            emergencyPhone: decoded.ep || '',
-            emergencyEmail: decoded.ee || '',
-            insuranceProvider: decoded.ip || '',
-            insurancePolicy: decoded.ipo || '',
-          });
-          setLoading(false);
-          return;
-        } catch (e) {
-          console.error('Failed to decode hash data:', e);
-        }
-      }
-      // Fallback: try localStorage
-      const stored = localStorage.getItem(`medmap_profile_${id}`);
-      if (stored) {
-        try {
-          setProfile(JSON.parse(stored));
-        } catch (e) {
-          console.error('Failed to load profile from localStorage:', e);
-        }
+    const loadProfile = async () => {
+      const { data, error } = await supabase
+        .from('health_profiles')
+        .select('*')
+        .eq('user_id', id)
+        .single();
+
+      if (data && !error) {
+        setProfile({
+          firstName: data.first_name || '',
+          lastName: data.last_name || '',
+          bloodType: data.blood_type || '',
+          allergies: data.allergies || '',
+          conditions: data.conditions || '',
+          medications: data.medications || '',
+          pastProcedures: data.past_procedures || '',
+          emergencyName: data.emergency_name || '',
+          emergencyPhone: data.emergency_phone || '',
+          emergencyEmail: data.emergency_email || '',
+          insuranceProvider: data.insurance_provider || '',
+          insurancePolicy: data.insurance_policy || '',
+        });
       }
       setLoading(false);
     };
@@ -76,7 +64,7 @@ const HealthProfileOverview = () => {
     );
   }
 
-  if (!profile || (!profile.firstName && !profile.lastName && !profile.bloodType && !profile.conditions)) {
+  if (!profile) {
     return (
       <div style={{
         minHeight: '100vh',
@@ -89,21 +77,10 @@ const HealthProfileOverview = () => {
         <div style={{ textAlign: 'center', maxWidth: '400px', padding: '32px' }}>
           <div style={{ fontSize: '64px', marginBottom: '16px' }}>📋</div>
           <h2 style={{ margin: '0 0 12px', color: '#1e293b', fontSize: '24px' }}>
-            Profile Not Yet Completed
+            Profile Not Found
           </h2>
-          <p style={{ color: '#64748b', fontSize: '15px', lineHeight: 1.6, marginBottom: '16px' }}>
-            This health profile exists but hasn't been filled out yet. Please complete your profile information first.
-          </p>
-          <p style={{ 
-            color: '#94a3b8', 
-            fontSize: '13px', 
-            fontFamily: 'monospace',
-            backgroundColor: '#f1f5f9',
-            padding: '12px',
-            borderRadius: '6px',
-            wordBreak: 'break-all'
-          }}>
-            Profile ID: {id}
+          <p style={{ color: '#64748b', fontSize: '15px', lineHeight: 1.6 }}>
+            This health profile doesn't exist or hasn't been created yet.
           </p>
         </div>
       </div>
