@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import AuthHeader from '../Components/AuthHeader';
 
 // ── Bayesian rating helpers ───────────────────────────────────────────────────
 
@@ -475,68 +476,90 @@ const Results = () => {
 
   return (
     <div>
+      <AuthHeader />
+      
       <div ref={mapDivRef} style={{ display: 'none' }} />
 
-      <p><strong>Location:</strong> {state.address}</p>
-      <button onClick={() => navigate('/')}>Go back</button>
-
-      <div style={{ marginTop: '16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-        <button
-          onClick={() => setExcludeClosed(!excludeClosed)}
+      <div style={{ padding: '0 30px' }}>
+        <p style={{ fontSize: '16px', marginBottom: '10px' }}>
+          <strong>Location:</strong> {state.address}
+        </p>
+        <button 
+          onClick={() => navigate('/')}
           style={{
-            padding: '8px 16px',
-            background: excludeClosed ? '#1a7f5a' : '#f0f0f0',
-            color: excludeClosed ? 'white' : 'black',
-            border: '1px solid #ccc',
-            borderRadius: '6px',
+            padding: '10px 20px',
             cursor: 'pointer',
-            fontWeight: 'bold'
+            backgroundColor: '#f44336',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            marginBottom: '20px'
           }}
         >
-          {excludeClosed ? '✓' : '○'} Exclude Closed Places
+          ← Go back
         </button>
-        
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <label htmlFor="sort-method" style={{ fontWeight: 'bold', fontSize: '14px' }}>
-            Sort 2nd Result By:
-          </label>
-          <select
-            id="sort-method"
-            value={secondSortMethod}
-            onChange={(e) => setSecondSortMethod(e.target.value)}
+
+        <div style={{ marginTop: '16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setExcludeClosed(!excludeClosed)}
             style={{
-              padding: '8px 12px',
+              padding: '8px 16px',
+              background: excludeClosed ? '#1a7f5a' : '#f0f0f0',
+              color: excludeClosed ? 'white' : 'black',
               border: '1px solid #ccc',
               borderRadius: '6px',
-              fontSize: '14px',
               cursor: 'pointer',
-              background: 'white'
+              fontWeight: 'bold'
             }}
           >
-            {SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            {excludeClosed ? '✓' : '○'} Exclude Closed Places
+          </button>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label htmlFor="sort-method" style={{ fontWeight: 'bold', fontSize: '14px' }}>
+              Sort 2nd Result By:
+            </label>
+            <select
+              id="sort-method"
+              value={secondSortMethod}
+              onChange={(e) => setSecondSortMethod(e.target.value)}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid #ccc',
+                borderRadius: '6px',
+                fontSize: '14px',
+                cursor: 'pointer',
+                background: 'white'
+              }}
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          {SECTIONS.map((section, i) => (
+            <button
+              key={section.id}
+              onClick={() => setActiveSection(i)}
+              disabled={activeSection === i}
+            >
+              {section.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div>
-        {SECTIONS.map((section, i) => (
-          <button
-            key={section.id}
-            onClick={() => setActiveSection(i)}
-            disabled={activeSection === i}
-          >
-            {section.label}
-          </button>
-        ))}
-      </div>
+      <div style={{ padding: '0 30px' }}>
+        {loadingStatus && <p>{loadingStatus}</p>}
 
-      {loadingStatus && <p>{loadingStatus}</p>}
-
-      {categoryData && activeCategories.map((cat) => {
+        {categoryData && activeCategories.map((cat) => {
         const data = categoryData[cat.id];
         let allPlaces = data?.allPlaces ?? [];
         
@@ -585,6 +608,7 @@ const Results = () => {
           </div>
         );
       })}
+      </div>
     </div>
   );
 };

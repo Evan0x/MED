@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HealthChatbot from '../Components/Healthchatbot';
+import AuthHeader from '../Components/AuthHeader';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
@@ -88,16 +89,42 @@ const Landing = () => {
 
   return (
     <div>
-      <input
-        ref={inputRef}
-        type="text"
-        placeholder="Enter your address"
-      />
-      <button onClick={handleLocateMe}>Locate Me</button>
-
-      {status && <p>{status}</p>}
+      <AuthHeader />
       
-      <HealthChatbot />
+      <div style={{ padding: '0 30px' }}>
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Enter your address"
+          style={{ 
+            padding: '12px', 
+            width: '400px',
+            fontSize: '16px',
+            borderRadius: '6px',
+            border: '1px solid #ddd'
+          }}
+        />
+        <button 
+          onClick={handleLocateMe}
+          style={{
+            padding: '12px 24px',
+            marginLeft: '10px',
+            cursor: 'pointer',
+            backgroundColor: '#2196F3',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            fontSize: '16px',
+            fontWeight: 'bold'
+          }}
+        >
+          Locate Me
+        </button>
+
+        {status && <p style={{ marginTop: '10px', color: '#666' }}>{status}</p>}
+        
+        <HealthChatbot />
+      </div>
     </div>
   );
 };
