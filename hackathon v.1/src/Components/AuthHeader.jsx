@@ -1,10 +1,12 @@
 import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from '@clerk/clerk-react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AvelaLogo, AvelaWordmark } from './AvelaLogo';
+import { useAppReset } from '../AppReset';
 
 const AuthHeader = ({ showBack, onBack }) => {
   const { user } = useUser();
   const navigate = useNavigate();
+  const resetApp = useAppReset();
 
   return (
     <header style={{
@@ -37,13 +39,23 @@ const AuthHeader = ({ showBack, onBack }) => {
             ← Back
           </button>
         )}
-        <div
-          onClick={() => navigate('/')}
-          style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
+        {/* Logo doubles as Home / full reset */}
+        <Link
+          to="/"
+          onClick={resetApp}
+          aria-label="Avela home — reset search"
+          title="Back to home and start over"
+          style={{
+            display: 'flex', alignItems: 'center', gap: '10px',
+            textDecoration: 'none', cursor: 'pointer',
+            opacity: 1, transition: 'opacity 0.15s',
+          }}
+          onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
+          onMouseLeave={e => e.currentTarget.style.opacity = '1'}
         >
           <AvelaLogo size={36} />
           <AvelaWordmark size={22} />
-        </div>
+        </Link>
       </div>
 
       {/* Right: auth */}

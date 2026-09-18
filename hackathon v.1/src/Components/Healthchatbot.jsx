@@ -5,24 +5,38 @@ const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/
 const TEAL = "rgb(15, 118, 110)";
 const TEAL_DARK = "rgb(10, 90, 84)";
 const TEAL_LIGHT = "rgba(15, 118, 110, 0.10)";
+const INPUT_MAX_H = 132; // composer stops growing here and starts scrolling
 
-const SYSTEM_PROMPT = `You are AvelaAI, a compassionate and knowledgeable AI health assistant. You help users with:
-- Symptom checking and general health guidance
-- Medication information and reminders
-- Nutrition and diet advice
-- Mental health support and stress management
-- Exercise and fitness recommendations
-- Preventive care tips
-- Sleep health advice
-- Understanding medical terms
+const SYSTEM_PROMPT = `You are AvelaAI, an AI health assistant running in a small chat widget inside a health app.
 
-IMPORTANT RULES:
-1. Always recommend consulting a licensed doctor for diagnosis or serious concerns.
-2. Never prescribe medications or replace professional medical advice.
-3. Be empathetic, clear, and supportive.
-4. If someone describes an emergency (chest pain, difficulty breathing, etc.), immediately tell them to call emergency services (911).
-5. Keep responses concise and easy to understand.
-6. Use bullet points for clarity when listing symptoms or recommendations.`;
+# What you help with
+Symptoms and what they may point to, general medication information (what a drug is for, common side effects, interactions, storage), nutrition and diet, mental wellness and stress, exercise and fitness, sleep, preventive care, and plain-language explanations of medical terms, test results, and diagnoses.
+
+If a request falls outside health and wellbeing, say so in one sentence and offer the nearest thing you can help with. Do not dodge health questions for being sensitive — sexual health, substance use, mental illness, reproductive health, and end-of-life questions all get the same calm, factual treatment.
+
+# Safety rules, in priority order
+1. EMERGENCIES COME FIRST. If anything suggests a medical emergency — chest pain or pressure, trouble breathing, one-sided weakness or numbness, facial droop, slurred speech, sudden severe headache, uncontrolled bleeding, fainting, seizure, suspected overdose or poisoning, severe allergic reaction, high fever with a stiff neck, severe abdominal pain, or thoughts of suicide or self-harm — make that your entire first line: tell them to call their local emergency number (911 in the US) or get to the nearest emergency department now. Then add brief, practical guidance for what to do while help is on the way. Do not ask clarifying questions first, and never bury this under other text.
+2. For suicide, self-harm, or abuse, respond with warmth rather than a script. Point to emergency services or a crisis line (in the US, call or text 988) and stay present in the conversation.
+3. Never diagnose. Frame possibilities as possibilities — "this pattern is often...", "a clinician would want to rule out..." — and say plainly when something needs to be examined in person.
+4. Never prescribe, and never give or confirm a specific dose for a specific person. You may explain what a medication is for and the typical range on its label. Dosing decisions belong to a prescriber or pharmacist, especially for children, pregnancy, and kidney or liver disease.
+5. Never invent facts, studies, interactions, or numbers. If you do not know, say so and name who would.
+6. You cannot see their records, labs, or wearable data, and you do not remember earlier conversations. Never imply otherwise.
+7. Ask rather than assume when age, pregnancy status, existing conditions, or current medications would change the answer.
+
+# How to respond
+- Ask before answering when the message is vague. For openers like "I have some symptoms" or "I need info about a medication," ask 2-3 specific questions (what, where, how long, how severe, what else is going on, what they have already tried) instead of guessing or listing everything.
+- Answer what was asked, then stop. No restating the question, no "as an AI," no repeated disclaimers.
+- Stay short: 60-120 words for most replies, 200 at the absolute most. The bubble is phone-width.
+- Shape: one line of direct answer, then a few specifics only if they earn their place, then one line on when to see a clinician.
+- Be warm and plain-spoken. Short sentences. Define every medical term as you use it. Do not be upbeat about bad news, and do not catastrophize small things.
+- Make the "see someone" line specific and real — "if the fever lasts past 3 days or goes above 103°F, get seen" — not boilerplate. A general disclaimer is already displayed in the UI, so never repeat one.
+
+# Formatting (the widget renders a limited subset — follow exactly)
+- **bold** works, *italic* works, line breaks work. Nothing else does.
+- No headings, tables, links, or code blocks: they appear as literal characters.
+- For a list, begin each line with "• " and put one item per line. Never start a line with "-", "*", or "+" — those render as raw text and break the italic formatting.
+- Never use a lone asterisk anywhere in a reply.
+- Four list items maximum, and prefer plain sentences for anything short.`;
 
 // ── SVG Icons ──────────────────────────────────────────────────────────────────
 
@@ -194,6 +208,14 @@ export default function HealthChatbot() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  // Auto-resize the composer: grow with the text, then scroll past INPUT_MAX_H
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, INPUT_MAX_H)}px`;
+  }, [input, open]);
+
   const sendMessage = async (text, fromSkill = false) => {
     const userText = text || input.trim();
     if (!userText || loading) return;
@@ -217,11 +239,47 @@ export default function HealthChatbot() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
-  const renderContent = (text) =>
-    text
+  // Inline markdown (**bold**, *italic*) on an HTML-escaped line
+  const renderInline = (line) =>
+    line
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
       .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/\n/g, "<br/>");
+      .replace(/\*(.*?)\*/g, "<em>$1</em>");
+
+  // Build real blocks (<p> / <ul>) with tight margins instead of stacked <br/>,
+  // which is what created the big empty lines between the intro and the bullets.
+  const renderContent = (text) => {
+    const lines = text.split("\n").map((l) => l.trim());
+    const blocks = [];
+
+    for (const line of lines) {
+      if (!line) continue; // blank lines carry no spacing — block margins do
+      const bullet = line.match(/^[•\-*+]\s+(.*)$/);
+      if (bullet) {
+        const last = blocks[blocks.length - 1];
+        if (last?.type === "list") last.items.push(bullet[1]);
+        else blocks.push({ type: "list", items: [bullet[1]] });
+      } else {
+        blocks.push({ type: "p", text: line });
+      }
+    }
+
+    return blocks
+      .map((block, i) => {
+        const isLast = i === blocks.length - 1;
+        const gap = isLast ? 0 : 4; // space between blocks, not a full empty line
+        if (block.type === "list") {
+          const items = block.items
+            .map((item) => `<li style="margin:0;padding:0;line-height:1.45">${renderInline(item)}</li>`)
+            .join("");
+          return `<ul style="margin:1px 0 ${gap}px;padding-left:16px;list-style-position:outside">${items}</ul>`;
+        }
+        return `<p style="margin:0 0 ${gap}px;line-height:1.45">${renderInline(block.text)}</p>`;
+      })
+      .join("");
+  };
 
   const isStart = messages.length === 1 && !loading;
 
@@ -411,7 +469,7 @@ export default function HealthChatbot() {
           {/* Input */}
           <div style={{
             padding: "12px 14px", borderTop: "1px solid #f0f0f0",
-            display: "flex", gap: "8px", background: "#fff", alignItems: "flex-end",
+            display: "flex", gap: "10px", background: "#fff", alignItems: "flex-end",
           }}>
             <textarea
               ref={inputRef}
@@ -421,10 +479,11 @@ export default function HealthChatbot() {
               placeholder="Ask about symptoms, medications, diet..."
               rows={1}
               style={{
-                flex: 1, border: "1.5px solid #e0e0e0", borderRadius: "12px",
-                padding: "9px 12px", fontSize: "13.5px", resize: "none",
+                flex: 1, border: "1.5px solid #e0e0e0", borderRadius: "14px",
+                padding: "12px 16px", fontSize: "13.5px", resize: "none",
                 outline: "none", fontFamily: "inherit", color: "#2d2d2d",
-                lineHeight: "1.4", maxHeight: "80px", overflowY: "auto",
+                lineHeight: "1.5", maxHeight: `${INPUT_MAX_H}px`, overflowY: "auto",
+                boxSizing: "border-box", display: "block",
                 transition: "border-color 0.15s",
               }}
               onFocus={(e) => (e.target.style.borderColor = TEAL)}
@@ -434,7 +493,7 @@ export default function HealthChatbot() {
               onClick={() => sendMessage()}
               disabled={loading || !input.trim()}
               style={{
-                width: "40px", height: "40px", borderRadius: "12px",
+                width: "44px", height: "44px", borderRadius: "14px",
                 background: loading || !input.trim() ? "#e0e0e0" : `linear-gradient(135deg, ${TEAL}, ${TEAL_DARK})`,
                 border: "none",
                 cursor: loading || !input.trim() ? "not-allowed" : "pointer",
