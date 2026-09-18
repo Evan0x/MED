@@ -517,7 +517,19 @@ const Results = () => {
         markersRef.current.push(marker);
       });
     });
+
+    // Detach markers on unmount too, so a reset/navigation leaves no strays
+    return () => {
+      markersRef.current.forEach((m) => m.setMap(null));
+      markersRef.current = [];
+    };
   }, [categoryData, activeSection]);
+
+  // Drop the user-location pin when the page goes away
+  useEffect(() => () => {
+    userMarkerRef.current?.setMap(null);
+    userMarkerRef.current = null;
+  }, []);
 
   if (!state) {
     return (
