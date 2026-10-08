@@ -572,7 +572,7 @@ const Results = () => {
   if (!state) {
     return (
       <div style={{ fontFamily: 'system-ui, sans-serif', backgroundColor: dark ? '#0b1120' : 'white', minHeight: '100vh' }}>
-        <AuthHeader showBack onBack={() => navigate('/')} />
+        <AuthHeader />
         <div style={{ padding: '60px', textAlign: 'center' }}>
           <p style={{ color: '#64748b', marginBottom: '20px' }}>No location data found.</p>
           <button onClick={() => navigate('/')} style={{ padding: '12px 24px', backgroundColor: accent, color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 600 }}>
@@ -600,7 +600,7 @@ const Results = () => {
 
   return (
     <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: dark ? '#0b1120' : 'white' }}>
-      <AuthHeader showBack onBack={() => navigate('/')} />
+      <AuthHeader />
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* ── Left panel: results list ── */}
