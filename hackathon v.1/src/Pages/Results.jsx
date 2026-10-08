@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AuthHeader from '../Components/AuthHeader';
 import PlaceDetailModal from '../Components/PlaceDetailModal';
+import { loadGoogleMaps } from '../googleMaps';
 
 // ── Bayesian rating helpers ───────────────────────────────────────────────────
 
@@ -476,16 +477,8 @@ const Results = () => {
       });
     };
 
-    if (window.google?.maps?.places) {
-      runAllSearches();
-    } else {
-      const existing = document.querySelector('#gmaps-script');
-      if (existing) {
-        existing.addEventListener('load', runAllSearches);
-      } else {
-        setLoadingStatus('Google Maps failed to load.');
-      }
-    }
+    // Also covers opening /results directly (refresh), where the home page never loaded Maps
+    loadGoogleMaps(runAllSearches);
   }, [state]);
 
   // ── Update map markers when section / data changes ──

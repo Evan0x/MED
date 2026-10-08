@@ -2,29 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HealthChatbot from '../Components/Healthchatbot';
 import AuthHeader from '../Components/AuthHeader';
-
-const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-
-function loadGoogleMaps(callback) {
-  if (window.google?.maps) { callback(); return; }
-  if (document.querySelector('#gmaps-script')) {
-    document.querySelector('#gmaps-script').addEventListener('load', callback);
-    return;
-  }
-  const script = document.createElement('script');
-  script.id = 'gmaps-script';
-  script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=places`;
-  script.async = true;
-  script.defer = true;
-  script.onload = callback;
-  document.head.appendChild(script);
-}
+import { useSystemDarkMode } from '../useSystemDarkMode';
+import { loadGoogleMaps } from '../googleMaps';
 
 const Landing = () => {
   const inputRef = useRef(null);
   const [location, setLocation] = useState({ address: '', lat: null, lng: null });
   const [status, setStatus] = useState('');
   const navigate = useNavigate();
+  const dark = useSystemDarkMode();
+  const accent = dark ? '#2dd4bf' : '#0f766e';
 
   useEffect(() => {
     loadGoogleMaps(() => {
@@ -43,7 +30,7 @@ const Landing = () => {
         navigate('/results', { state: loc });
       });
     });
-  }, []);
+  }, [navigate]);
 
   const handleLocateMe = () => {
     if (!navigator.geolocation) {
@@ -108,7 +95,7 @@ const Landing = () => {
   ];
 
   return (
-    <div style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden' }}>
+    <div style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden', backgroundColor: dark ? '#0b1220' : 'white' }}>
       <AuthHeader />
 
       {/* Hero */}
@@ -128,13 +115,15 @@ const Landing = () => {
           backgroundImage: 'url(/landing-bg.png)',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          filter: 'blur(1px) brightness(1.05)',
+          filter: dark ? 'blur(1px) brightness(0.55) saturate(0.8)' : 'blur(1px) brightness(1.05)',
           transform: 'scale(1.02)',
         }} />
         {/* Warm overlay */}
         <div style={{
           position: 'absolute', inset: 0,
-          background: 'linear-gradient(160deg, rgba(255,252,245,0.82) 0%, rgba(245,240,230,0.78) 50%, rgba(240,235,225,0.70) 100%)',
+          background: dark
+            ? 'linear-gradient(160deg, rgba(11,18,32,0.88) 0%, rgba(15,23,42,0.84) 50%, rgba(15,23,42,0.78) 100%)'
+            : 'linear-gradient(160deg, rgba(255,252,245,0.82) 0%, rgba(245,240,230,0.78) 50%, rgba(240,235,225,0.70) 100%)',
         }} />
 
         {/* Content */}
@@ -146,21 +135,21 @@ const Landing = () => {
             margin: '0 0 8px',
             letterSpacing: '-1px',
           }}>
-            <span style={{ color: '#1e293b' }}>Find the right care,</span>
+            <span style={{ color: dark ? '#f8fafc' : '#1e293b' }}>Find the right care,</span>
             <br />
-            <span style={{ color: '#0f766e' }}>anywhere in the world</span>
+            <span style={{ color: accent }}>anywhere in the world</span>
           </h1>
 
           {/* Search bar */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            backgroundColor: 'white',
+            backgroundColor: dark ? '#1e293b' : 'white',
             borderRadius: '18px',
             padding: '6px 6px 6px 20px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.14)',
+            boxShadow: dark ? '0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(0,0,0,0.14)',
             marginTop: '28px',
-            border: '1px solid rgba(255,255,255,0.8)',
+            border: dark ? '1px solid #334155' : '1px solid rgba(255,255,255,0.8)',
           }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" style={{ flexShrink: 0 }}>
               <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
@@ -169,6 +158,7 @@ const Landing = () => {
             <input
               ref={inputRef}
               type="text"
+              className="landing-search-input"
               placeholder="Your location..."
               onChange={() => setLocation({ address: '', lat: null, lng: null })}
               style={{
@@ -176,7 +166,7 @@ const Landing = () => {
                 border: 'none',
                 outline: 'none',
                 fontSize: '16px',
-                color: '#1e293b',
+                color: dark ? '#e2e8f0' : '#1e293b',
                 backgroundColor: 'transparent',
                 padding: '10px 14px',
                 minWidth: 0,
@@ -231,7 +221,7 @@ const Landing = () => {
           {status && (
             <p style={{
               marginTop: '14px',
-              color: status.startsWith('Geolocation error') || status.startsWith('Could not') || status.startsWith('Address not') ? '#dc2626' : '#0f766e',
+              color: status.startsWith('Geolocation error') || status.startsWith('Could not') || status.startsWith('Address not') ? (dark ? '#f87171' : '#dc2626') : accent,
               fontSize: '14px',
               fontWeight: 500,
             }}>
@@ -253,7 +243,7 @@ const Landing = () => {
                   width: '8px', height: '8px', borderRadius: '50%',
                   backgroundColor: '#f59e0b', flexShrink: 0,
                 }} />
-                <span style={{ fontSize: '14px', color: '#475569', fontWeight: 500 }}>{label}</span>
+                <span style={{ fontSize: '14px', color: dark ? '#cbd5e1' : '#475569', fontWeight: 500 }}>{label}</span>
               </div>
             ))}
           </div>
@@ -261,6 +251,17 @@ const Landing = () => {
       </div>
 
       <HealthChatbot />
+
+      {dark && (
+        <style>{`
+          .landing-search-input::placeholder { color: #64748b; }
+          /* Google Places autocomplete dropdown */
+          .pac-container { background: #1e293b; border: 1px solid #334155; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+          .pac-item { color: #94a3b8; border-top-color: #243041; }
+          .pac-item:hover, .pac-item-selected { background: #243041; }
+          .pac-item-query { color: #e2e8f0; }
+        `}</style>
+      )}
     </div>
   );
 };

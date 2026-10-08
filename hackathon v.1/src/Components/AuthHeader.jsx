@@ -2,11 +2,16 @@ import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from '@clerk/c
 import { Link, useNavigate } from 'react-router-dom';
 import { AvelaLogo, AvelaWordmark } from './AvelaLogo';
 import { useAppReset } from '../AppReset';
+import { useSystemDarkMode } from '../useSystemDarkMode';
 
 const AuthHeader = ({ showBack, onBack }) => {
   const { user } = useUser();
   const navigate = useNavigate();
   const resetApp = useAppReset();
+  const dark = useSystemDarkMode();
+  const accent = dark ? '#2dd4bf' : '#0f766e';
+  const chipBg = dark ? '#1e293b' : 'white';
+  const chipBorder = dark ? '#334155' : '#e2e8f0';
 
   return (
     <header style={{
@@ -15,12 +20,12 @@ const AuthHeader = ({ showBack, onBack }) => {
       justifyContent: 'space-between',
       padding: '0 32px',
       height: '64px',
-      backgroundColor: 'white',
-      borderBottom: '1px solid #f0f0f0',
+      backgroundColor: dark ? '#0f172a' : 'white',
+      borderBottom: `1px solid ${dark ? '#243041' : '#f0f0f0'}`,
       position: 'sticky',
       top: 0,
       zIndex: 100,
-      boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+      boxShadow: dark ? '0 1px 4px rgba(0,0,0,0.4)' : '0 1px 4px rgba(0,0,0,0.06)',
     }}>
       {/* Left: back + logo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -30,10 +35,10 @@ const AuthHeader = ({ showBack, onBack }) => {
             style={{
               display: 'flex', alignItems: 'center', gap: '6px',
               background: 'none', border: 'none', cursor: 'pointer',
-              color: '#475569', fontSize: '14px', fontWeight: 500,
+              color: dark ? '#cbd5e1' : '#475569', fontSize: '14px', fontWeight: 500,
               padding: '6px 10px', borderRadius: '8px',
             }}
-            onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+            onMouseEnter={e => e.currentTarget.style.background = dark ? '#1e293b' : '#f1f5f9'}
             onMouseLeave={e => e.currentTarget.style.background = 'none'}
           >
             ← Back
@@ -54,7 +59,7 @@ const AuthHeader = ({ showBack, onBack }) => {
           onMouseLeave={e => e.currentTarget.style.opacity = '1'}
         >
           <AvelaLogo size={36} />
-          <AvelaWordmark size={22} />
+          <AvelaWordmark size={22} color={accent} />
         </Link>
       </div>
 
@@ -81,21 +86,21 @@ const AuthHeader = ({ showBack, onBack }) => {
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px',
                 padding: '8px 16px', borderRadius: '20px',
-                border: '1.5px solid #e2e8f0',
-                backgroundColor: 'white', color: '#0f766e',
+                border: `1.5px solid ${chipBorder}`,
+                backgroundColor: chipBg, color: accent,
                 fontSize: '13px', fontWeight: 600, cursor: 'pointer',
                 transition: 'all 0.15s',
               }}
               onMouseEnter={e => {
-                e.currentTarget.style.backgroundColor = '#f0fdf4';
-                e.currentTarget.style.borderColor = '#0f766e';
+                e.currentTarget.style.backgroundColor = dark ? 'rgba(45,212,191,0.12)' : '#f0fdf4';
+                e.currentTarget.style.borderColor = accent;
               }}
               onMouseLeave={e => {
-                e.currentTarget.style.backgroundColor = 'white';
-                e.currentTarget.style.borderColor = '#e2e8f0';
+                e.currentTarget.style.backgroundColor = chipBg;
+                e.currentTarget.style.borderColor = chipBorder;
               }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0f766e" strokeWidth="2.5">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.5">
                 <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
               </svg>
               Health Profile
@@ -104,7 +109,7 @@ const AuthHeader = ({ showBack, onBack }) => {
             {/* User info + avatar */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', lineHeight: 1.3 }}>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: dark ? '#f8fafc' : '#1e293b', lineHeight: 1.3 }}>
                   {user?.fullName || user?.firstName || 'User'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#94a3b8', lineHeight: 1.3 }}>

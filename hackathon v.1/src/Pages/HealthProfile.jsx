@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { SignedIn, SignedOut, useUser } from '@clerk/clerk-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
 import AuthHeader from '../Components/AuthHeader';
 import { supabase } from '../Supabase';
+import { useSystemDarkMode } from '../useSystemDarkMode';
+import { apiPost } from '../api';
 
 const TEAL = '#0f766e';
 const AMBER = '#f59e0b';
-const PIN_KEY = 'medmap_health_pin';
+// Old builds kept a plaintext PIN here; it's cleared on load.
+const LEGACY_PIN_KEY = 'medmap_health_pin';
 
 const EMPTY_PROFILE = {
   firstName: '', lastName: '',
@@ -55,18 +57,19 @@ const fromRow = (row) => ({
 
 // ── Small reusable pieces ─────────────────────────────────────────────────────
 
-const SectionTitle = ({ children }) => (
+const SectionTitle = ({ children, isDarkMode }) => (
   <h3 style={{
     margin: '28px 0 14px', fontSize: '15px', fontWeight: 700,
-    color: '#1e293b', borderBottom: '2px solid #f1f5f9', paddingBottom: '10px',
+    color: isDarkMode ? '#f3f4f6' : '#1e293b',
+    borderBottom: `2px solid ${isDarkMode ? '#334155' : '#f1f5f9'}`, paddingBottom: '10px',
   }}>
     {children}
   </h3>
 );
 
-const Field = ({ label, value, onChange, placeholder, type = 'text', half = false }) => (
+const Field = ({ label, value, onChange, placeholder, type = 'text', half = false, isDarkMode }) => (
   <div style={{ gridColumn: half ? 'auto' : '1 / -1' }}>
-    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: isDarkMode ? '#cbd5e1' : '#64748b', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
       {label}
     </label>
     <input
@@ -76,13 +79,14 @@ const Field = ({ label, value, onChange, placeholder, type = 'text', half = fals
       placeholder={placeholder || label}
       style={{
         width: '100%', padding: '10px 13px',
-        border: '1px solid #e2e8f0', borderRadius: '8px',
-        fontSize: '14px', color: '#1e293b', backgroundColor: 'white',
+        border: `1px solid ${isDarkMode ? '#475569' : '#e2e8f0'}`, borderRadius: '8px',
+        fontSize: '14px', color: isDarkMode ? '#f8fafc' : '#1e293b', backgroundColor: isDarkMode ? '#0f172a' : 'white',
+        caretColor: isDarkMode ? '#f8fafc' : '#1e293b',
         outline: 'none', boxSizing: 'border-box',
         transition: 'border-color 0.15s',
       }}
       onFocus={e => { e.target.style.borderColor = TEAL; }}
-      onBlur={e => { e.target.style.borderColor = '#e2e8f0'; }}
+      onBlur={e => { e.target.style.borderColor = isDarkMode ? '#475569' : '#e2e8f0'; }}
     />
   </div>
 );
@@ -108,7 +112,7 @@ const Toggle = ({ checked, onChange }) => (
 
 // ── PIN modal ─────────────────────────────────────────────────────────────────
 
-const PinModal = ({ mode, onConfirm, onCancel, error }) => {
+const PinModal = ({ mode, onConfirm, onCancel, error, isDarkMode }) => {
   const [digits, setDigits] = useState(['', '', '', '']);
   const refs = [useRef(), useRef(), useRef(), useRef()];
 
@@ -136,17 +140,17 @@ const PinModal = ({ mode, onConfirm, onCancel, error }) => {
       backdropFilter: 'blur(4px)',
     }}>
       <div style={{
-        backgroundColor: 'white', borderRadius: '20px', padding: '40px',
+        backgroundColor: isDarkMode ? '#0f172a' : 'white', borderRadius: '20px', padding: '40px',
         width: '360px', textAlign: 'center',
         boxShadow: '0 25px 60px rgba(0,0,0,0.2)',
       }}>
         <div style={{ fontSize: '40px', marginBottom: '16px' }}>🔐</div>
-        <h2 style={{ margin: '0 0 8px', color: '#1e293b', fontSize: '20px', fontWeight: 700 }}>
+        <h2 style={{ margin: '0 0 8px', color: isDarkMode ? '#f3f4f6' : '#1e293b', fontSize: '20px', fontWeight: 700 }}>
           {mode === 'setup' ? 'Set a PIN' : 'Enter PIN'}
         </h2>
-        <p style={{ margin: '0 0 28px', color: '#64748b', fontSize: '14px' }}>
+        <p style={{ margin: '0 0 28px', color: isDarkMode ? '#cbd5e1' : '#64748b', fontSize: '14px' }}>
           {mode === 'setup'
-            ? 'Choose a 4-digit PIN to protect your health profile'
+            ? 'People who scan your QR code will need this PIN to see your full profile'
             : 'Enter your PIN to access your health profile'}
         </p>
         <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', marginBottom: '24px' }}>
@@ -164,10 +168,11 @@ const PinModal = ({ mode, onConfirm, onCancel, error }) => {
               style={{
                 width: '52px', height: '56px', textAlign: 'center',
                 fontSize: '22px', fontWeight: 700,
-                border: `2px solid ${error ? '#fca5a5' : d ? TEAL : '#e2e8f0'}`,
+                border: `2px solid ${error ? '#fca5a5' : d ? TEAL : isDarkMode ? '#475569' : '#e2e8f0'}`,
                 borderRadius: '10px', outline: 'none',
-                backgroundColor: d ? '#f0fdf4' : 'white',
-                color: '#1e293b', transition: 'all 0.15s',
+                backgroundColor: d ? (isDarkMode ? '#14532d' : '#f0fdf4') : (isDarkMode ? '#0f172a' : 'white'),
+                color: isDarkMode ? '#f8fafc' : '#1e293b', transition: 'all 0.15s',
+                caretColor: isDarkMode ? '#f8fafc' : '#1e293b',
               }}
             />
           ))}
@@ -190,17 +195,16 @@ const PinModal = ({ mode, onConfirm, onCancel, error }) => {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const HealthProfile = () => {
-  const navigate = useNavigate();
   const { user, isLoaded } = useUser();
+  const isDarkMode = useSystemDarkMode();
   const [profile, setProfile] = useState(EMPTY_PROFILE);
   const [loading, setLoading] = useState(true);
   const [requirePin, setRequirePin] = useState(false);
-  const [storedPin, setStoredPin] = useState('');
-  const [unlocked, setUnlocked] = useState(false);
   const [showPinSetup, setShowPinSetup] = useState(false);
-  const [showPinEntry, setShowPinEntry] = useState(false);
   const [pinError, setPinError] = useState('');
   const [savedIndicator, setSavedIndicator] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const [qrToken, setQrToken] = useState(null);
   const [targetLang, setTargetLang] = useState('');
   const [translatedText, setTranslatedText] = useState('');
   const [translating, setTranslating] = useState(false);
@@ -216,22 +220,19 @@ const HealthProfile = () => {
         .from('health_profiles')
         .select('*')
         .eq('user_id', user.id)
-        .single();
-      if (data && !error) {
+        .maybeSingle();
+      if (error) {
+        console.error('Load profile failed:', error);
+        setSaveError(true);
+      } else if (data) {
         setProfile(fromRow(data));
+        setQrToken(data.qr_token);
+        setRequirePin(Boolean(data.pin_hash));
       }
       setLoading(false);
     };
     load();
-
-    const pin = localStorage.getItem(PIN_KEY);
-    if (pin) {
-      setStoredPin(pin);
-      setRequirePin(true);
-      setShowPinEntry(true);
-    } else {
-      setUnlocked(true);
-    }
+    try { localStorage.removeItem(LEGACY_PIN_KEY); } catch { /* storage unavailable */ }
   }, [isLoaded, user]);
 
   // ── Auto-save to Supabase ──
@@ -241,9 +242,18 @@ const HealthProfile = () => {
       const next = { ...prev, [field]: value };
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
-        await supabase
+        const { data, error } = await supabase
           .from('health_profiles')
-          .upsert(toRow(next, user.id), { onConflict: 'user_id' });
+          .upsert(toRow(next, user.id), { onConflict: 'user_id' })
+          .select('qr_token')
+          .single();
+        if (error) {
+          console.error('Save profile failed:', error);
+          setSaveError(true);
+          return;
+        }
+        setSaveError(false);
+        setQrToken(data.qr_token);
         setSavedIndicator(true);
         setTimeout(() => setSavedIndicator(false), 2500);
       }, 700);
@@ -346,27 +356,9 @@ const HealthProfile = () => {
 
     setTranslating(true);
     try {
-      const res = await fetch(
-        `https://translation.googleapis.com/language/translate/v2?key=${import.meta.env.VITE_GEMINI_TRANSLATE_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            q: summary,
-            target: langCode,
-            source: 'en',
-            format: 'text',
-          }),
-        }
-      );
-      const json = await res.json();
-      const text = json?.data?.translations?.[0]?.translatedText;
-      if (text) {
-        translationCache.current[cacheKey] = text;
-        setTranslatedText(text);
-      } else {
-        setTranslatedText('Translation failed. Check your API key or Cloud Translation API is enabled.');
-      }
+      const { text } = await apiPost('translate', { text: summary, target: langCode });
+      translationCache.current[cacheKey] = text;
+      setTranslatedText(text);
     } catch (e) {
       console.error('Translation error:', e);
       setTranslatedText('Translation failed. Please try again.');
@@ -389,34 +381,7 @@ const HealthProfile = () => {
     setSpeaking(true);
     try {
       const voiceName = LANGUAGES.find(l => l.code === langCode)?.voice || 'en-US-Standard-A';
-      const langCodeFull = voiceName.split('-').slice(0, 2).join('-');
-
-      const res = await fetch(
-        `https://texttospeech.googleapis.com/v1/text:synthesize?key=${import.meta.env.VITE_GEMINI_SPEECH_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            input: { text: text },
-            voice: {
-              languageCode: langCodeFull,
-              name: voiceName,
-            },
-            audioConfig: {
-              audioEncoding: 'MP3',
-              pitch: 0,
-              speakingRate: 0.95,
-            },
-          }),
-        }
-      );
-
-      if (!res.ok) {
-        throw new Error(`TTS API error: ${res.status}`);
-      }
-
-      const json = await res.json();
-      const audioContent = json.audioContent;
+      const { audioContent } = await apiPost('speech', { text, voice: voiceName });
 
       const audioBlob = new Blob(
         [Uint8Array.from(atob(audioContent), c => c.charCodeAt(0))],
@@ -443,19 +408,39 @@ const HealthProfile = () => {
     } catch (e) {
       console.error('Google TTS error:', e);
       setSpeaking(false);
-      alert('⚠️ Text-to-speech failed. Check your Google Cloud TTS API key and ensure the API is enabled.');
+      alert('⚠️ Text-to-speech failed. Please try again.');
     }
   };
 
   // ── Build QR URL (clean, points to Supabase-backed page) ──
-  const qrValue = user
-    ? `${window.location.protocol}//${window.location.hostname}:${window.location.port}/health-profile/${user.id}`
-    : 'Loading...';
+  // VITE_PUBLIC_URL (e.g. https://your-app.vercel.app) lets QR codes made on
+  // localhost still open on a phone; otherwise use the current site's origin.
+  const publicUrl = (import.meta.env.VITE_PUBLIC_URL || window.location.origin).replace(/\/$/, '');
+  // The QR holds a random token, not the user id, so it can be reset if a card is lost.
+  const qrValue = qrToken ? `${publicUrl}/health-profile/${qrToken}` : null;
+
+  // ── Reset QR: old printed codes stop working ──
+  const resetQR = async () => {
+    if (!user || !qrToken) return;
+    if (!window.confirm('Reset your QR code? Any QR code you already printed or shared will stop working.')) return;
+    const { data, error } = await supabase
+      .from('health_profiles')
+      .update({ qr_token: crypto.randomUUID() })
+      .eq('user_id', user.id)
+      .select('qr_token')
+      .single();
+    if (error) {
+      console.error('Reset QR failed:', error);
+      alert('Could not reset the QR code. Please try again.');
+      return;
+    }
+    setQrToken(data.qr_token);
+  };
 
   // ── Download QR as SVG ──
   const downloadQR = () => {
     const svg = document.getElementById('health-qr-svg');
-    if (!svg) return;
+    if (!svg || !qrValue) return;
     const serializer = new XMLSerializer();
     const source = serializer.serializeToString(svg);
     const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
@@ -523,32 +508,35 @@ const HealthProfile = () => {
     doc.save(`${profile.firstName || 'health'}-passport.pdf`);
   };
 
-  // ── PIN handlers ──
-  const handleTogglePin = (val) => {
+  // ── PIN handlers (PIN is hashed and checked in the database, see supabase/pin.sql) ──
+  const handleTogglePin = async (val) => {
     if (val) {
-      setShowPinSetup(true);
-    } else {
-      setRequirePin(false);
-      setStoredPin('');
-      localStorage.removeItem(PIN_KEY);
-    }
-  };
-
-  const handlePinSetup = (pin) => {
-    setStoredPin(pin);
-    setRequirePin(true);
-    localStorage.setItem(PIN_KEY, pin);
-    setShowPinSetup(false);
-  };
-
-  const handlePinEntry = (pin) => {
-    if (pin === storedPin) {
-      setUnlocked(true);
-      setShowPinEntry(false);
+      if (!qrToken) {
+        alert('Fill in your profile first, then turn on the PIN.');
+        return;
+      }
       setPinError('');
-    } else {
-      setPinError('Incorrect PIN. Please try again.');
+      setShowPinSetup(true);
+      return;
     }
+    const { error } = await supabase.rpc('set_profile_pin', { pin: null });
+    if (error) {
+      console.error('Clear PIN failed:', error);
+      alert('Could not turn off the PIN. Please try again.');
+      return;
+    }
+    setRequirePin(false);
+  };
+
+  const handlePinSetup = async (pin) => {
+    const { error } = await supabase.rpc('set_profile_pin', { pin });
+    if (error) {
+      console.error('Set PIN failed:', error);
+      setPinError('Could not save the PIN. Please try again.');
+      return;
+    }
+    setRequirePin(true);
+    setShowPinSetup(false);
   };
 
   // ── PIN screens ──
@@ -559,21 +547,8 @@ const HealthProfile = () => {
         onConfirm={handlePinSetup}
         onCancel={() => setShowPinSetup(false)}
         error={pinError}
+        isDarkMode={isDarkMode}
       />
-    );
-  }
-
-  if (showPinEntry && !unlocked) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif' }}>
-        <AuthHeader showBack onBack={() => navigate('/')} />
-        <PinModal
-          mode="entry"
-          onConfirm={handlePinEntry}
-          onCancel={() => navigate('/')}
-          error={pinError}
-        />
-      </div>
     );
   }
 
@@ -586,7 +561,7 @@ const HealthProfile = () => {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      <AuthHeader showBack onBack={() => navigate('/')} />
+      <AuthHeader />
 
       <SignedOut>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', color: '#64748b' }}>
@@ -607,10 +582,12 @@ const HealthProfile = () => {
               </h1>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: '6px',
-                fontSize: '12px', color: savedIndicator ? TEAL : 'transparent',
+                fontSize: '12px', color: saveError ? '#dc2626' : savedIndicator ? TEAL : 'transparent',
                 fontWeight: 600, transition: 'color 0.3s',
               }}>
-                <span style={{ fontSize: '16px' }}>↻</span> Auto-saved
+                {saveError
+                  ? <>⚠️ Not saved — check your connection</>
+                  : <><span style={{ fontSize: '16px' }}>↻</span> Auto-saved</>}
               </div>
             </div>
             <p style={{ margin: '0 0 8px', fontSize: '13px', color: '#94a3b8' }}>
@@ -618,49 +595,49 @@ const HealthProfile = () => {
             </p>
 
             {/* Personal Info */}
-            <SectionTitle>Personal Info</SectionTitle>
+            <SectionTitle isDarkMode={isDarkMode}>Personal Info</SectionTitle>
             <div style={grid2}>
-              <Field half label="First name" value={profile.firstName} onChange={v => updateField('firstName', v)} placeholder="Susanne" />
-              <Field half label="Last name" value={profile.lastName} onChange={v => updateField('lastName', v)} placeholder="Doe" />
+              <Field half isDarkMode={isDarkMode} label="First name" value={profile.firstName} onChange={v => updateField('firstName', v)} placeholder="Susanne" />
+              <Field half isDarkMode={isDarkMode} label="Last name" value={profile.lastName} onChange={v => updateField('lastName', v)} placeholder="Doe" />
             </div>
 
             {/* Critical Medical Info */}
-            <SectionTitle>Critical Medical Info</SectionTitle>
+            <SectionTitle isDarkMode={isDarkMode}>Critical Medical Info</SectionTitle>
             <div style={grid2}>
-              <Field half label="Blood Type" value={profile.bloodType} onChange={v => updateField('bloodType', v)} placeholder="O+" />
-              <Field half label="Allergies" value={profile.allergies} onChange={v => updateField('allergies', v)} placeholder="Penicillin, Peanuts" />
+              <Field half isDarkMode={isDarkMode} label="Blood Type" value={profile.bloodType} onChange={v => updateField('bloodType', v)} placeholder="O+" />
+              <Field half isDarkMode={isDarkMode} label="Allergies" value={profile.allergies} onChange={v => updateField('allergies', v)} placeholder="Penicillin, Peanuts" />
             </div>
             <div style={{ marginTop: '12px' }}>
-              <Field label="Conditions" value={profile.conditions} onChange={v => updateField('conditions', v)} placeholder="Hypertension, Diabetes…" />
+              <Field isDarkMode={isDarkMode} label="Conditions" value={profile.conditions} onChange={v => updateField('conditions', v)} placeholder="Hypertension, Diabetes…" />
             </div>
 
             {/* Current Symptoms */}
-            <SectionTitle>Current Symptoms</SectionTitle>
-            <Field label="Current Symptoms" value={profile.currentSymptoms} onChange={v => updateField('currentSymptoms', v)} placeholder="Chest pain, shortness of breath, dizziness…" />
+            <SectionTitle isDarkMode={isDarkMode}>Current Symptoms</SectionTitle>
+            <Field isDarkMode={isDarkMode} label="Current Symptoms" value={profile.currentSymptoms} onChange={v => updateField('currentSymptoms', v)} placeholder="Chest pain, shortness of breath, dizziness…" />
 
             {/* Past Procedures */}
-            <SectionTitle>Past Procedures</SectionTitle>
-            <Field label="Past Procedures" value={profile.pastProcedures} onChange={v => updateField('pastProcedures', v)} placeholder="Appendectomy 2018, Knee surgery 2021…" />
+            <SectionTitle isDarkMode={isDarkMode}>Past Procedures</SectionTitle>
+            <Field isDarkMode={isDarkMode} label="Past Procedures" value={profile.pastProcedures} onChange={v => updateField('pastProcedures', v)} placeholder="Appendectomy 2018, Knee surgery 2021…" />
 
             {/* Medications */}
-            <SectionTitle>Medications</SectionTitle>
-            <Field label="Medications" value={profile.medications} onChange={v => updateField('medications', v)} placeholder="Lisinopril 10mg daily, Metformin 500mg…" />
+            <SectionTitle isDarkMode={isDarkMode}>Medications</SectionTitle>
+            <Field isDarkMode={isDarkMode} label="Medications" value={profile.medications} onChange={v => updateField('medications', v)} placeholder="Lisinopril 10mg daily, Metformin 500mg…" />
 
             {/* Emergency Contacts */}
-            <SectionTitle>Emergency Contacts</SectionTitle>
+            <SectionTitle isDarkMode={isDarkMode}>Emergency Contacts</SectionTitle>
             <div style={grid2}>
-              <Field half label="Name" value={profile.emergencyName} onChange={v => updateField('emergencyName', v)} placeholder="Jane Doe" />
-              <Field half label="Phone" value={profile.emergencyPhone} onChange={v => updateField('emergencyPhone', v)} placeholder="+1 (555) 000-0000" type="tel" />
+              <Field half isDarkMode={isDarkMode} label="Name" value={profile.emergencyName} onChange={v => updateField('emergencyName', v)} placeholder="Jane Doe" />
+              <Field half isDarkMode={isDarkMode} label="Phone" value={profile.emergencyPhone} onChange={v => updateField('emergencyPhone', v)} placeholder="+1 (555) 000-0000" type="tel" />
             </div>
             <div style={{ marginTop: '12px' }}>
-              <Field label="Email Address" value={profile.emergencyEmail} onChange={v => updateField('emergencyEmail', v)} placeholder="jane@example.com" type="email" />
+              <Field isDarkMode={isDarkMode} label="Email Address" value={profile.emergencyEmail} onChange={v => updateField('emergencyEmail', v)} placeholder="jane@example.com" type="email" />
             </div>
 
             {/* Insurance */}
-            <SectionTitle>Insurance Details</SectionTitle>
+            <SectionTitle isDarkMode={isDarkMode}>Insurance Details</SectionTitle>
             <div style={grid2}>
-              <Field half label="Insurance Provider" value={profile.insuranceProvider} onChange={v => updateField('insuranceProvider', v)} placeholder="Blue Cross" />
-              <Field half label="Policy Number" value={profile.insurancePolicy} onChange={v => updateField('insurancePolicy', v)} placeholder="POL-123456" />
+              <Field half isDarkMode={isDarkMode} label="Insurance Provider" value={profile.insuranceProvider} onChange={v => updateField('insuranceProvider', v)} placeholder="Blue Cross" />
+              <Field half isDarkMode={isDarkMode} label="Policy Number" value={profile.insurancePolicy} onChange={v => updateField('insurancePolicy', v)} placeholder="POL-123456" />
             </div>
 
             <div style={{ height: '40px' }} />
@@ -669,29 +646,36 @@ const HealthProfile = () => {
           {/* ── Right: QR Panel ── */}
           <div style={{
             width: '420px', flexShrink: 0,
-            backgroundColor: '#f0f9f7',
-            borderLeft: '1px solid #e2e8f0',
+            backgroundColor: isDarkMode ? '#0b1220' : '#f0f9f7',
+            borderLeft: `1px solid ${isDarkMode ? '#243041' : '#e2e8f0'}`,
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             padding: '32px 28px', overflowY: 'auto',
             gap: '20px',
           }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '10px',
-              fontSize: '13px', fontWeight: 600, color: '#475569',
-            }}>
-              <span>🔒</span>
-              <span>Require PIN to view full profile</span>
-              <Toggle checked={requirePin} onChange={handleTogglePin} />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+                fontSize: '13px', fontWeight: 600, color: isDarkMode ? '#cbd5e1' : '#475569',
+              }}>
+                <span>🔒</span>
+                <span>Require PIN to view full profile</span>
+                <Toggle checked={requirePin} onChange={handleTogglePin} />
+              </div>
+              <p style={{ margin: '6px 0 0', fontSize: '11.5px', lineHeight: 1.5, color: isDarkMode ? '#94a3b8' : '#64748b' }}>
+                {requirePin
+                  ? 'Without the PIN, people who scan see only your name, blood type, allergies and emergency contact.'
+                  : 'Anyone who scans your QR code sees your full profile.'}
+              </p>
             </div>
 
-            <div style={{ width: '100%', height: '1px', backgroundColor: '#e2e8f0' }} />
+            <div style={{ width: '100%', height: '1px', backgroundColor: isDarkMode ? '#243041' : '#e2e8f0' }} />
 
             {/* Passport info */}
             <div style={{ textAlign: 'center' }}>
-              <h2 style={{ margin: '0 0 6px', fontSize: '18px', fontWeight: 800, color: '#1e293b', lineHeight: 1.3 }}>
+              <h2 style={{ margin: '0 0 6px', fontSize: '18px', fontWeight: 800, color: isDarkMode ? '#f8fafc' : '#1e293b', lineHeight: 1.3 }}>
                 Your Health Passport
               </h2>
-              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Scan QR to view full medical profile</p>
+              <p style={{ margin: 0, fontSize: '13px', color: isDarkMode ? '#94a3b8' : '#64748b' }}>Scan QR to view full medical profile</p>
             </div>
 
             {/* QR card */}
@@ -701,23 +685,43 @@ const HealthProfile = () => {
               boxShadow: '0 4px 20px rgba(15,118,110,0.12)',
               display: 'inline-block',
             }}>
-              <QRCodeSVG
-                id="health-qr-svg"
-                value={qrValue}
-                size={220}
-                fgColor={TEAL}
-                bgColor="white"
-                style={{ display: 'block' }}
-              />
+              {qrValue ? (
+                <QRCodeSVG
+                  id="health-qr-svg"
+                  value={qrValue}
+                  size={220}
+                  fgColor={TEAL}
+                  bgColor="white"
+                  style={{ display: 'block' }}
+                />
+              ) : (
+                <div style={{
+                  width: 220, height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  textAlign: 'center', color: '#64748b', fontSize: '13px', lineHeight: 1.5,
+                }}>
+                  {loading ? 'Loading…' : 'Fill in your profile to create your QR code'}
+                </div>
+              )}
             </div>
+            {qrValue && (
+              <button
+                onClick={resetQR}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px',
+                  color: isDarkMode ? '#94a3b8' : '#64748b', fontSize: '12px', textDecoration: 'underline',
+                }}
+              >
+                Lost your card? Reset QR code
+              </button>
+            )}
 
 
             {/* Divider */}
 
             {/* Phone Call Summary */}
             <div style={{
-              width: '100%', backgroundColor: 'white', borderRadius: '12px',
-              padding: '16px', border: '1px solid #e2e8f0',
+              width: '100%', backgroundColor: isDarkMode ? '#0f172a' : 'white', borderRadius: '12px',
+              padding: '16px', border: `1px solid ${isDarkMode ? '#243041' : '#e2e8f0'}`,
             }}>
               <div style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -725,7 +729,7 @@ const HealthProfile = () => {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ fontSize: '15px' }}>📞</span>
-                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: isDarkMode ? '#f8fafc' : '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     Phone Call Script
                   </span>
                 </div>
@@ -743,8 +747,8 @@ const HealthProfile = () => {
                     }}
                     style={{
                       padding: '4px 10px', borderRadius: '6px',
-                      backgroundColor: '#f1f5f9', border: '1px solid #e2e8f0',
-                      fontSize: '11px', fontWeight: 600, color: '#475569',
+                      backgroundColor: isDarkMode ? '#111827' : '#f1f5f9', border: `1px solid ${isDarkMode ? '#243041' : '#e2e8f0'}`,
+                      fontSize: '11px', fontWeight: 600, color: isDarkMode ? '#cbd5e1' : '#475569',
                       cursor: 'pointer',
                     }}
                   >
@@ -759,18 +763,18 @@ const HealthProfile = () => {
                     <p key={i} style={{
                       margin: 0,
                       fontSize: '13px',
-                      color: i === 0 ? '#0f766e' : '#374151',
+                      color: i === 0 ? TEAL : (isDarkMode ? '#d1d5db' : '#374151'),
                       fontWeight: i === 0 ? 600 : 400,
                       lineHeight: 1.7,
                       paddingLeft: i > 0 && i < buildSummary(profile).split('\n\n').length - 1 ? '10px' : '0',
-                      borderLeft: i > 0 && i < buildSummary(profile).split('\n\n').length - 1 ? '2px solid #e2e8f0' : 'none',
+                      borderLeft: i > 0 && i < buildSummary(profile).split('\n\n').length - 1 ? `2px solid ${isDarkMode ? '#243041' : '#e2e8f0'}` : 'none',
                     }}>
                       {line}
                     </p>
                   ))}
                 </div>
               ) : (
-                <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' }}>
+                <p style={{ margin: 0, fontSize: '13px', color: isDarkMode ? '#94a3b8' : '#94a3b8', fontStyle: 'italic' }}>
                   Fill in your profile to generate a phone call script.
                 </p>
               )}
@@ -779,14 +783,14 @@ const HealthProfile = () => {
             {/* Translate & Speak Section */}
             {buildSummary(profile) && (
               <div style={{
-                width: '100%', backgroundColor: 'white', borderRadius: '12px',
-                padding: '16px', border: '1px solid #e2e8f0',
+                width: '100%', backgroundColor: isDarkMode ? '#0f172a' : 'white', borderRadius: '12px',
+                padding: '16px', border: `1px solid ${isDarkMode ? '#243041' : '#e2e8f0'}`,
               }}>
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px',
                 }}>
                   <span style={{ fontSize: '15px' }}>🌐</span>
-                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: isDarkMode ? '#f8fafc' : '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     Translate & Read Aloud
                   </span>
                 </div>
@@ -796,8 +800,8 @@ const HealthProfile = () => {
                   onChange={e => handleTranslate(e.target.value)}
                   style={{
                     width: '100%', padding: '10px 12px', borderRadius: '8px',
-                    border: '1px solid #e2e8f0', fontSize: '13px',
-                    color: '#1e293b', backgroundColor: 'white',
+                    border: `1px solid ${isDarkMode ? '#475569' : '#e2e8f0'}`, fontSize: '13px',
+                    color: isDarkMode ? '#f8fafc' : '#1e293b', backgroundColor: isDarkMode ? '#0f172a' : 'white',
                     cursor: 'pointer', outline: 'none', marginBottom: '12px',
                   }}
                 >
@@ -810,10 +814,10 @@ const HealthProfile = () => {
                 {translating && (
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: '8px',
-                    color: '#94a3b8', fontSize: '13px', padding: '8px 0',
+                    color: isDarkMode ? '#94a3b8' : '#94a3b8', fontSize: '13px', padding: '8px 0',
                   }}>
                     <div style={{
-                      width: '14px', height: '14px', border: '2px solid #e2e8f0',
+                      width: '14px', height: '14px', border: `2px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
                       borderTopColor: TEAL, borderRadius: '50%',
                       animation: 'spin 0.8s linear infinite',
                     }} />
@@ -824,9 +828,9 @@ const HealthProfile = () => {
                 {translatedText && !translating && (
                   <>
                     <div style={{
-                      padding: '12px', backgroundColor: '#f8fafc',
-                      borderRadius: '8px', border: '1px solid #e2e8f0',
-                      fontSize: '13px', color: '#374151', lineHeight: 1.75,
+                      padding: '12px', backgroundColor: isDarkMode ? '#111827' : '#f8fafc',
+                      borderRadius: '8px', border: `1px solid ${isDarkMode ? '#243041' : '#e2e8f0'}`,
+                      fontSize: '13px', color: isDarkMode ? '#d1d5db' : '#374151', lineHeight: 1.75,
                       whiteSpace: 'pre-line', marginBottom: '10px',
                     }}>
                       {translatedText}
@@ -860,8 +864,8 @@ const HealthProfile = () => {
                         }}
                         style={{
                           padding: '10px 14px', borderRadius: '8px',
-                          backgroundColor: '#f1f5f9', border: '1px solid #e2e8f0',
-                          fontSize: '13px', fontWeight: 600, color: '#475569',
+                          backgroundColor: isDarkMode ? '#111827' : '#f1f5f9', border: `1px solid ${isDarkMode ? '#243041' : '#e2e8f0'}`,
+                          fontSize: '13px', fontWeight: 600, color: isDarkMode ? '#cbd5e1' : '#475569',
                           cursor: 'pointer',
                         }}
                       >
@@ -879,14 +883,16 @@ const HealthProfile = () => {
             <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
               <button
                 onClick={downloadQR}
+                disabled={!qrValue}
                 style={{
                   flex: 1, padding: '13px', borderRadius: '28px',
                   backgroundColor: AMBER, border: 'none',
                   color: 'white', fontWeight: 700, fontSize: '14px',
-                  cursor: 'pointer', transition: 'opacity 0.15s',
+                  cursor: qrValue ? 'pointer' : 'not-allowed', transition: 'opacity 0.15s',
+                  opacity: qrValue ? 1 : 0.5,
                 }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '0.88'}
-                onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+                onMouseEnter={e => { if (qrValue) e.currentTarget.style.opacity = '0.88'; }}
+                onMouseLeave={e => { if (qrValue) e.currentTarget.style.opacity = '1'; }}
               >
                 ↓ Download QR
               </button>
