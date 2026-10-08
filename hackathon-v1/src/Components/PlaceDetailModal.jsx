@@ -1,24 +1,27 @@
 import { useEffect } from 'react';
+import { useSystemDarkMode } from '../useSystemDarkMode';
 
 const TEAL = '#0f766e';
+const TEAL_DARK = '#2dd4bf';
 const AMBER = '#f59e0b';
 
 const formatType = (type) =>
   type?.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) ?? '';
 
-const InfoRow = ({ icon, label, value, href }) => {
+const InfoRow = ({ icon, label, value, href, dark }) => {
   if (!value) return null;
+  const accent = dark ? TEAL_DARK : TEAL;
   return (
     <div style={{ display: 'flex', gap: '12px', marginBottom: '14px', alignItems: 'flex-start' }}>
-      <span style={{ color: TEAL, fontSize: '18px', flexShrink: 0, width: '22px', textAlign: 'center', marginTop: '1px' }}>{icon}</span>
+      <span style={{ color: accent, fontSize: '18px', flexShrink: 0, width: '22px', textAlign: 'center', marginTop: '1px' }}>{icon}</span>
       <div>
         <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>{label}</div>
         {href ? (
-          <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: TEAL, fontSize: '14px', wordBreak: 'break-all', textDecoration: 'none', fontWeight: 500 }}>
+          <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: accent, fontSize: '14px', wordBreak: 'break-all', textDecoration: 'none', fontWeight: 500 }}>
             {value}
           </a>
         ) : (
-          <div style={{ color: '#1e293b', fontSize: '14px', lineHeight: 1.5 }}>{value}</div>
+          <div style={{ color: dark ? '#e2e8f0' : '#1e293b', fontSize: '14px', lineHeight: 1.5 }}>{value}</div>
         )}
       </div>
     </div>
@@ -26,6 +29,9 @@ const InfoRow = ({ icon, label, value, href }) => {
 };
 
 const PlaceDetailModal = ({ place, details, onClose }) => {
+  const dark = useSystemDarkMode();
+  const accent = dark ? TEAL_DARK : TEAL;
+
   const photoUrl =
     details?.photos?.[0]?.getUrl?.({ maxWidth: 900, maxHeight: 400 }) ||
     place.photos?.[0]?.getUrl?.({ maxWidth: 900, maxHeight: 400 });
@@ -57,7 +63,7 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0,
-        backgroundColor: 'rgba(15,23,42,0.55)',
+        backgroundColor: 'rgba(15,23,42,0.65)',
         zIndex: 1000,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: '20px',
@@ -67,14 +73,15 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          backgroundColor: 'white',
+          backgroundColor: dark ? '#1e293b' : 'white',
           borderRadius: '20px',
           maxWidth: '740px',
           width: '100%',
           maxHeight: '90vh',
           overflow: 'auto',
           position: 'relative',
-          boxShadow: '0 25px 60px rgba(0,0,0,0.25)',
+          boxShadow: dark ? '0 25px 60px rgba(0,0,0,0.6)' : '0 25px 60px rgba(0,0,0,0.25)',
+          border: dark ? '1px solid #334155' : 'none',
         }}
       >
         {/* Close button */}
@@ -82,10 +89,12 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
           onClick={onClose}
           style={{
             position: 'absolute', top: '14px', right: '14px', zIndex: 10,
-            background: 'rgba(255,255,255,0.95)',
-            border: 'none', borderRadius: '50%',
+            background: dark ? 'rgba(30,41,59,0.95)' : 'rgba(255,255,255,0.95)',
+            border: dark ? '1px solid #334155' : 'none',
+            borderRadius: '50%',
             width: '36px', height: '36px',
-            cursor: 'pointer', fontSize: '16px', color: '#475569',
+            cursor: 'pointer', fontSize: '16px',
+            color: dark ? '#94a3b8' : '#475569',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
             fontWeight: 700,
@@ -99,7 +108,7 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
           height: '220px',
           background: photoUrl
             ? `url(${photoUrl}) center/cover no-repeat`
-            : `linear-gradient(135deg, ${TEAL} 0%, #14b8a6 100%)`,
+            : `linear-gradient(135deg, ${accent} 0%, #14b8a6 100%)`,
           borderRadius: '20px 20px 0 0',
           position: 'relative',
         }}>
@@ -157,7 +166,7 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
               style={{
                 display: 'flex', alignItems: 'center', gap: '8px',
                 padding: '12px 22px', borderRadius: '28px',
-                backgroundColor: TEAL, color: 'white',
+                backgroundColor: accent, color: 'white',
                 fontWeight: 600, fontSize: '14px', textDecoration: 'none',
                 transition: 'opacity 0.15s',
               }}
@@ -177,7 +186,7 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
             <div style={{
               display: 'flex', alignItems: 'center', gap: '8px',
               padding: '12px 22px', borderRadius: '28px',
-              backgroundColor: TEAL, color: 'white',
+              backgroundColor: accent, color: 'white',
               fontWeight: 600, fontSize: '14px', opacity: 0.6,
             }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
@@ -200,18 +209,20 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
         }}>
           {/* Information */}
           <div>
-            <h3 style={{ margin: '0 0 18px', fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Information</h3>
-            <InfoRow icon="📍" label="Address" value={place.vicinity} />
-            <InfoRow icon="📞" label="Phone" value={details?.phone} href={details?.phone ? `tel:${details.phone}` : null} />
+            <h3 style={{ margin: '0 0 18px', fontSize: '16px', fontWeight: 700, color: dark ? '#f8fafc' : '#1e293b' }}>Information</h3>
+            <InfoRow icon="📍" label="Address" value={place.vicinity} dark={dark} />
+            <InfoRow icon="📞" label="Phone" value={details?.phone} href={details?.phone ? `tel:${details.phone}` : null} dark={dark} />
             <InfoRow icon="🌐" label="Website"
               value={websiteUrl ? new URL(websiteUrl).hostname.replace('www.', '') : null}
               href={websiteUrl}
+              dark={dark}
             />
             {place.opening_hours && (
               <InfoRow
                 icon="🕐"
                 label="Status"
                 value={place.opening_hours.open_now ? '✅ Open Now' : '❌ Currently Closed'}
+                dark={dark}
               />
             )}
             {place.price_level != null && (
@@ -219,15 +230,16 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
                 icon="💰"
                 label="Price Level"
                 value={place.price_level === 0 ? 'Free' : '$'.repeat(place.price_level)}
+                dark={dark}
               />
             )}
           </div>
 
           {/* About */}
           <div>
-            <h3 style={{ margin: '0 0 18px', fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>About</h3>
+            <h3 style={{ margin: '0 0 18px', fontSize: '16px', fontWeight: 700, color: dark ? '#f8fafc' : '#1e293b' }}>About</h3>
             {firstReview ? (
-              <p style={{ margin: 0, fontSize: '14px', color: '#475569', lineHeight: 1.6, fontStyle: 'italic' }}>
+              <p style={{ margin: 0, fontSize: '14px', color: dark ? '#94a3b8' : '#475569', lineHeight: 1.6, fontStyle: 'italic' }}>
                 "{firstReview.text?.slice(0, 220)}{firstReview.text?.length > 220 ? '…' : ''}"
               </p>
             ) : (
@@ -239,14 +251,15 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
             {/* Specialties / types */}
             {primaryTypes.length > 0 && (
               <div style={{ marginTop: '20px' }}>
-                <h4 style={{ margin: '0 0 10px', fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>Specialties</h4>
+                <h4 style={{ margin: '0 0 10px', fontSize: '13px', fontWeight: 700, color: dark ? '#f8fafc' : '#1e293b' }}>Specialties</h4>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                   {primaryTypes.map((t) => (
                     <span key={t} style={{
                       padding: '4px 12px', borderRadius: '20px',
-                      backgroundColor: '#f0fdf4', color: TEAL,
+                      backgroundColor: dark ? '#0d2821' : '#f0fdf4',
+                      color: accent,
                       fontSize: '12px', fontWeight: 600,
-                      border: `1px solid #bbf7d0`,
+                      border: `1px solid ${dark ? '#1a5c58' : '#bbf7d0'}`,
                     }}>
                       {formatType(t)}
                     </span>
@@ -260,10 +273,12 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
         {/* Hours */}
         {weekdays.length > 0 && (
           <div style={{ padding: '0 24px 24px' }}>
-            <h3 style={{ margin: '0 0 14px', fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>Hours</h3>
+            <h3 style={{ margin: '0 0 14px', fontSize: '16px', fontWeight: 700, color: dark ? '#f8fafc' : '#1e293b' }}>Hours</h3>
             <div style={{
-              backgroundColor: '#f8fafc', borderRadius: '12px',
-              overflow: 'hidden', border: '1px solid #e2e8f0',
+              backgroundColor: dark ? '#263147' : '#f8fafc',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              border: `1px solid ${dark ? '#334155' : '#e2e8f0'}`,
             }}>
               {weekdays.map((day, i) => {
                 const [dayName, ...rest] = day.split(': ');
@@ -272,13 +287,13 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
                   <div key={i} style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     padding: '10px 16px',
-                    borderBottom: i < weekdays.length - 1 ? '1px solid #e2e8f0' : 'none',
-                    backgroundColor: isToday ? '#f0fdf4' : 'transparent',
+                    borderBottom: i < weekdays.length - 1 ? `1px solid ${dark ? '#334155' : '#e2e8f0'}` : 'none',
+                    backgroundColor: isToday ? (dark ? '#0d2821' : '#f0fdf4') : 'transparent',
                   }}>
-                    <span style={{ fontSize: '13px', fontWeight: isToday ? 700 : 500, color: isToday ? TEAL : '#475569' }}>
+                    <span style={{ fontSize: '13px', fontWeight: isToday ? 700 : 500, color: isToday ? accent : (dark ? '#94a3b8' : '#475569') }}>
                       {dayName}
                     </span>
-                    <span style={{ fontSize: '13px', color: isToday ? TEAL : '#64748b', fontWeight: isToday ? 600 : 400 }}>
+                    <span style={{ fontSize: '13px', color: isToday ? accent : (dark ? '#64748b' : '#64748b'), fontWeight: isToday ? 600 : 400 }}>
                       {rest.join(': ')}
                     </span>
                   </div>
@@ -291,13 +306,15 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
         {/* Rating & Reviews */}
         {place.rating != null && (
           <div style={{ padding: '0 24px 28px' }}>
-            <h3 style={{ margin: '0 0 14px', fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+            <h3 style={{ margin: '0 0 14px', fontSize: '16px', fontWeight: 700, color: dark ? '#f8fafc' : '#1e293b' }}>
               Rating & Reviews
               <span style={{
                 marginLeft: '12px', padding: '4px 12px',
-                backgroundColor: '#fffbeb', borderRadius: '20px',
-                fontSize: '13px', color: '#92400e',
-                border: '1px solid #fde68a',
+                backgroundColor: dark ? '#2a1f0a' : '#fffbeb',
+                borderRadius: '20px',
+                fontSize: '13px',
+                color: dark ? '#fbbf24' : '#92400e',
+                border: `1px solid ${dark ? '#78350f' : '#fde68a'}`,
               }}>
                 ★ {place.rating.toFixed(1)} &nbsp;·&nbsp; {place.user_ratings_total ?? 0} reviews
               </span>
@@ -305,8 +322,9 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
             {details?.reviews?.slice(0, 2).map((review, i) => (
               <div key={i} style={{
                 padding: '14px 16px', marginBottom: '10px',
-                backgroundColor: '#f8fafc', borderRadius: '12px',
-                border: '1px solid #e2e8f0',
+                backgroundColor: dark ? '#263147' : '#f8fafc',
+                borderRadius: '12px',
+                border: `1px solid ${dark ? '#334155' : '#e2e8f0'}`,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
                   <img
@@ -316,11 +334,11 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
                     onError={e => { e.currentTarget.style.display = 'none'; }}
                   />
                   <div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>{review.author_name}</div>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: dark ? '#e2e8f0' : '#1e293b' }}>{review.author_name}</div>
                     <div style={{ fontSize: '12px', color: AMBER }}>{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</div>
                   </div>
                 </div>
-                <p style={{ margin: 0, fontSize: '13px', color: '#475569', lineHeight: 1.55 }}>
+                <p style={{ margin: 0, fontSize: '13px', color: dark ? '#94a3b8' : '#475569', lineHeight: 1.55 }}>
                   {review.text?.slice(0, 200)}{review.text?.length > 200 ? '…' : ''}
                 </p>
               </div>

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import AuthHeader from '../Components/AuthHeader';
 import PlaceDetailModal from '../Components/PlaceDetailModal';
 import { loadGoogleMaps } from '../googleMaps';
+import { useSystemDarkMode } from '../useSystemDarkMode';
 
 // ── Bayesian rating helpers ───────────────────────────────────────────────────
 
@@ -149,7 +150,9 @@ const SECTIONS = [
     id: 'medical', label: 'Get Well',
     icon: '🏥',
     accent: '#0f766e',
+    accentDark: '#2dd4bf',
     accentSoft: '#ecfdf5',
+    accentSoftDark: '#0d2821',
     categories: [
       {
         id: 'pharmacy', label: 'Pharmacy',
@@ -223,7 +226,9 @@ const SECTIONS = [
     id: 'wellness', label: 'Stay Well',
     icon: '🌿',
     accent: '#15803d',
+    accentDark: '#4ade80',
     accentSoft: '#f0fdf4',
+    accentSoftDark: '#0d2018',
     categories: [
       {
         id: 'gym', label: 'Gym', icon: '🏋️', searchParams: { type: 'gym' },
@@ -259,27 +264,60 @@ const SORT_OPTIONS = [
 ];
 
 const TEAL = '#0f766e';
+const TEAL_DARK = '#2dd4bf';
 const AMBER = '#f59e0b';
+
+// Google Maps dark-mode styles
+const DARK_MAP_STYLES = [
+  { elementType: 'geometry', stylers: [{ color: '#1a2235' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a2235' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#8a9bb0' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#c4b98a' }] },
+  { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#283549' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#172030' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#7a8898' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3d4f6a' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#111d2b' }] },
+  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#e8d5a0' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'simplified' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0d1b2e' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3d5068' }] },
+];
+
+const LIGHT_MAP_STYLES = [
+  { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'simplified' }] },
+];
 
 // ── Result Card ───────────────────────────────────────────────────────────────
 
-const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, onClick, flush = false, fallbackIcon = '🏥' }) => {
+const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, onClick, flush = false, fallbackIcon = '🏥', dark = false }) => {
   const [hovered, setHovered] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const photoUrl = place.photos?.[0]?.getUrl?.({ maxWidth: 160, maxHeight: 160 });
   const showImage = photoUrl && !imageFailed;
   const isOpen = place.opening_hours?.open_now;
   const insuranceScore = showInsuranceIndicator ? calculateInsuranceScore(place) : 0;
+  const accent = dark ? TEAL_DARK : TEAL;
 
   const labelColor = label === 'Best Overall'
-    ? { bg: '#f0fdf4', color: TEAL, border: '#bbf7d0' }
-    : { bg: '#fffbeb', color: '#92400e', border: '#fde68a' };
+    ? {
+        bg: dark ? '#0d2821' : '#f0fdf4',
+        color: accent,
+        border: dark ? '#1a5c58' : '#bbf7d0',
+      }
+    : {
+        bg: dark ? '#2a1f0a' : '#fffbeb',
+        color: dark ? '#fbbf24' : '#92400e',
+        border: dark ? '#78350f' : '#fde68a',
+      };
 
   const standaloneStyle = {
     borderRadius: '14px',
-    border: `1px solid ${hovered ? '#cbd5e1' : '#e2e8f0'}`,
+    border: `1px solid ${hovered ? (dark ? '#334155' : '#cbd5e1') : (dark ? '#243041' : '#e2e8f0')}`,
     marginBottom: '12px',
-    backgroundColor: hovered ? '#f8fafc' : 'white',
+    backgroundColor: hovered ? (dark ? '#1a2535' : '#f8fafc') : (dark ? '#1e293b' : 'white'),
     boxShadow: hovered ? '0 4px 16px rgba(0,0,0,0.08)' : '0 1px 4px rgba(0,0,0,0.04)',
   };
 
@@ -287,7 +325,7 @@ const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, o
     borderRadius: 0,
     border: 'none',
     marginBottom: 0,
-    backgroundColor: hovered ? '#f8fafc' : 'transparent',
+    backgroundColor: hovered ? (dark ? '#1a2535' : '#f8fafc') : 'transparent',
     boxShadow: 'none',
   };
 
@@ -309,7 +347,7 @@ const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, o
       {/* Thumbnail */}
       <div style={{
         width: '80px', height: '80px', borderRadius: '10px', flexShrink: 0, overflow: 'hidden',
-        backgroundColor: '#f1f5f9',
+        backgroundColor: dark ? '#263147' : '#f1f5f9',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         {showImage ? (
@@ -327,9 +365,9 @@ const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, o
       {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
-          <span style={{ fontWeight: 700, fontSize: '15px', color: '#1e293b', lineHeight: 1.3 }}>{place.name}</span>
+          <span style={{ fontWeight: 700, fontSize: '15px', color: dark ? '#f8fafc' : '#1e293b', lineHeight: 1.3 }}>{place.name}</span>
           {place.rating != null && (
-            <span style={{ flexShrink: 0, fontSize: '13px', color: '#1e293b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+            <span style={{ flexShrink: 0, fontSize: '13px', color: dark ? '#f8fafc' : '#1e293b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
               <span style={{ color: AMBER }}>★</span>
               {place.rating.toFixed(1)}
               <span style={{ color: '#94a3b8', fontWeight: 400 }}>({place.user_ratings_total ?? 0})</span>
@@ -341,7 +379,7 @@ const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, o
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
           <span style={{
             padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
-            backgroundColor: '#f1f5f9', color: '#475569',
+            backgroundColor: dark ? '#263147' : '#f1f5f9', color: dark ? '#94a3b8' : '#475569',
           }}>{catLabel}</span>
           <span style={{
             padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
@@ -350,13 +388,15 @@ const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, o
           {showInsuranceIndicator && insuranceScore > 15 && (
             <span style={{
               padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
-              backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0',
+              backgroundColor: dark ? '#0d2018' : '#f0fdf4',
+              color: dark ? '#4ade80' : '#15803d',
+              border: `1px solid ${dark ? '#166534' : '#bbf7d0'}`,
             }}>💳 Insurance</span>
           )}
         </div>
 
         {place.vicinity && (
-          <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div style={{ fontSize: '13px', color: dark ? '#94a3b8' : '#64748b', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <span>📍</span> {place.vicinity}
           </div>
         )}
@@ -376,7 +416,7 @@ const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, o
       </div>
 
       {/* Chevron */}
-      <div style={{ color: '#cbd5e1', fontSize: '18px', flexShrink: 0, alignSelf: 'center', marginLeft: '4px' }}>›</div>
+      <div style={{ color: dark ? '#475569' : '#cbd5e1', fontSize: '18px', flexShrink: 0, alignSelf: 'center', marginLeft: '4px' }}>›</div>
     </div>
   );
 };
@@ -390,6 +430,8 @@ const Results = () => {
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
   const userMarkerRef = useRef(null);
+  const dark = useSystemDarkMode();
+  const accent = dark ? TEAL_DARK : TEAL;
 
   const [activeSection, setActiveSection] = useState(0);
   const [categoryData, setCategoryData] = useState(null);
@@ -413,10 +455,7 @@ const Results = () => {
         mapTypeControl: false,
         streetViewControl: false,
         fullscreenControl: true,
-        styles: [
-          { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-          { featureType: 'transit', stylers: [{ visibility: 'simplified' }] },
-        ],
+        styles: dark ? DARK_MAP_STYLES : LIGHT_MAP_STYLES,
       });
       mapInstanceRef.current = mapInstance;
 
@@ -428,7 +467,7 @@ const Results = () => {
         icon: {
           path: window.google.maps.SymbolPath.CIRCLE,
           scale: 10,
-          fillColor: TEAL,
+          fillColor: accent,
           fillOpacity: 1,
           strokeColor: 'white',
           strokeWeight: 3,
@@ -479,7 +518,13 @@ const Results = () => {
 
     // Also covers opening /results directly (refresh), where the home page never loaded Maps
     loadGoogleMaps(runAllSearches);
-  }, [state]);
+  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Sync map styles when dark mode changes ──
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    mapInstanceRef.current.setOptions({ styles: dark ? DARK_MAP_STYLES : LIGHT_MAP_STYLES });
+  }, [dark]);
 
   // ── Update map markers when section / data changes ──
   useEffect(() => {
@@ -526,11 +571,11 @@ const Results = () => {
 
   if (!state) {
     return (
-      <div style={{ fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ fontFamily: 'system-ui, sans-serif', backgroundColor: dark ? '#0b1120' : 'white', minHeight: '100vh' }}>
         <AuthHeader showBack onBack={() => navigate('/')} />
         <div style={{ padding: '60px', textAlign: 'center' }}>
           <p style={{ color: '#64748b', marginBottom: '20px' }}>No location data found.</p>
-          <button onClick={() => navigate('/')} style={{ padding: '12px 24px', backgroundColor: TEAL, color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 600 }}>
+          <button onClick={() => navigate('/')} style={{ padding: '12px 24px', backgroundColor: accent, color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 600 }}>
             Go back
           </button>
         </div>
@@ -554,7 +599,7 @@ const Results = () => {
   }
 
   return (
-    <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: dark ? '#0b1120' : 'white' }}>
       <AuthHeader showBack onBack={() => navigate('/')} />
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -562,15 +607,15 @@ const Results = () => {
         <div style={{
           width: '40%', minWidth: '440px', maxWidth: '640px', flexShrink: 0,
           display: 'flex', flexDirection: 'column',
-          borderRight: '1px solid #e2e8f0',
+          borderRight: `1px solid ${dark ? '#243041' : '#e2e8f0'}`,
           overflow: 'hidden',
-          backgroundColor: '#fafbfc',
+          backgroundColor: dark ? '#0f172a' : '#fafbfc',
         }}>
           {/* Panel header */}
           <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
-            <h2 style={{ margin: '0 0 4px', fontSize: '20px', fontWeight: 700, color: '#1e293b' }}>
+            <h2 style={{ margin: '0 0 4px', fontSize: '20px', fontWeight: 700, color: dark ? '#f8fafc' : '#1e293b' }}>
               Healthcare near{' '}
-              <span style={{ color: TEAL }}>{cityName}</span>
+              <span style={{ color: accent }}>{cityName}</span>
             </h2>
             {!loadingStatus && categoryData && (
               <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#94a3b8' }}>
@@ -591,8 +636,8 @@ const Results = () => {
                 display: 'inline-flex',
                 padding: '4px',
                 gap: '4px',
-                backgroundColor: '#e7ecf1',
-                border: '1px solid #d8dfe6',
+                backgroundColor: dark ? '#1e293b' : '#e7ecf1',
+                border: `1px solid ${dark ? '#334155' : '#d8dfe6'}`,
                 borderRadius: '12px',
                 marginBottom: '14px',
                 width: '100%',
@@ -611,10 +656,10 @@ const Results = () => {
                       flex: 1,
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                       padding: '9px 14px', borderRadius: '9px', border: 'none',
-                      backgroundColor: active ? 'white' : 'transparent',
-                      color: active ? '#0f172a' : '#64748b',
+                      backgroundColor: active ? (dark ? '#334155' : 'white') : 'transparent',
+                      color: active ? (dark ? '#f8fafc' : '#0f172a') : (dark ? '#64748b' : '#64748b'),
                       fontWeight: 700, fontSize: '13px', cursor: 'pointer',
-                      boxShadow: active ? '0 1px 2px rgba(15,23,42,0.08), 0 1px 3px rgba(15,23,42,0.06)' : 'none',
+                      boxShadow: active ? (dark ? '0 1px 2px rgba(0,0,0,0.4)' : '0 1px 2px rgba(15,23,42,0.08), 0 1px 3px rgba(15,23,42,0.06)') : 'none',
                       transition: 'all 0.15s',
                     }}
                   >
@@ -630,10 +675,10 @@ const Results = () => {
               display: 'flex', gap: '8px', alignItems: 'center',
               padding: '8px 10px',
               marginBottom: '16px',
-              backgroundColor: 'white',
-              border: '1px solid #e2e8f0',
+              backgroundColor: dark ? '#1e293b' : 'white',
+              border: `1px solid ${dark ? '#334155' : '#e2e8f0'}`,
               borderRadius: '12px',
-              boxShadow: '0 1px 2px rgba(15,23,42,0.03)',
+              boxShadow: dark ? 'none' : '0 1px 2px rgba(15,23,42,0.03)',
             }}>
               <button
                 onClick={() => setExcludeClosed(!excludeClosed)}
@@ -641,9 +686,9 @@ const Results = () => {
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: '6px',
                   padding: '7px 14px', borderRadius: '999px',
-                  border: `1px solid ${excludeClosed ? TEAL : '#e2e8f0'}`,
-                  backgroundColor: excludeClosed ? TEAL : 'white',
-                  color: excludeClosed ? 'white' : '#475569',
+                  border: `1px solid ${excludeClosed ? accent : (dark ? '#334155' : '#e2e8f0')}`,
+                  backgroundColor: excludeClosed ? accent : (dark ? '#0f172a' : 'white'),
+                  color: excludeClosed ? 'white' : (dark ? '#94a3b8' : '#475569'),
                   fontSize: '12px', fontWeight: 700, cursor: 'pointer',
                   transition: 'all 0.15s',
                 }}
@@ -658,7 +703,7 @@ const Results = () => {
                 Open now
               </button>
 
-              <div style={{ width: '1px', alignSelf: 'stretch', backgroundColor: '#e2e8f0' }} />
+              <div style={{ width: '1px', alignSelf: 'stretch', backgroundColor: dark ? '#334155' : '#e2e8f0' }} />
 
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
                 <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', flexShrink: 0 }}>
@@ -670,8 +715,9 @@ const Results = () => {
                   style={{
                     flex: 1, minWidth: 0,
                     padding: '7px 28px 7px 12px', borderRadius: '999px',
-                    border: '1px solid #e2e8f0',
-                    backgroundColor: '#f8fafc', color: '#1e293b',
+                    border: `1px solid ${dark ? '#334155' : '#e2e8f0'}`,
+                    backgroundColor: dark ? '#0f172a' : '#f8fafc',
+                    color: dark ? '#e2e8f0' : '#1e293b',
                     fontSize: '12px', fontWeight: 600, cursor: 'pointer',
                     appearance: 'none',
                     backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")',
@@ -707,8 +753,12 @@ const Results = () => {
                 ? getSecondResult(allPlaces, secondSortMethod, bestOverall.place_id)
                 : null;
               const sortLabel = SORT_OPTIONS.find((o) => o.value === secondSortMethod)?.label ?? 'Alternative';
-              const sectionAccent = SECTIONS[activeSection].accent ?? TEAL;
-              const sectionAccentSoft = SECTIONS[activeSection].accentSoft ?? '#ecfdf5';
+              const sectionAccent = dark
+                ? (SECTIONS[activeSection].accentDark ?? TEAL_DARK)
+                : (SECTIONS[activeSection].accent ?? TEAL);
+              const sectionAccentSoft = dark
+                ? (SECTIONS[activeSection].accentSoftDark ?? '#0d2821')
+                : (SECTIONS[activeSection].accentSoft ?? '#ecfdf5');
               const count = (bestOverall ? 1 : 0) + (secondResult ? 1 : 0);
 
               return (
@@ -716,34 +766,34 @@ const Results = () => {
                   key={cat.id}
                   style={{
                     marginBottom: '22px',
-                    backgroundColor: 'white',
-                    border: '1px solid #e2e8f0',
+                    backgroundColor: dark ? '#1e293b' : 'white',
+                    border: `1px solid ${dark ? '#243041' : '#e2e8f0'}`,
                     borderLeft: `4px solid ${sectionAccent}`,
                     borderRadius: '14px',
                     overflow: 'hidden',
-                    boxShadow: '0 1px 3px rgba(15,23,42,0.05)',
+                    boxShadow: dark ? '0 1px 3px rgba(0,0,0,0.3)' : '0 1px 3px rgba(15,23,42,0.05)',
                   }}
                 >
                   {/* Group header — visually fused with the cards below */}
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: '12px',
                     padding: '14px 16px',
-                    background: `linear-gradient(180deg, ${sectionAccentSoft} 0%, #ffffff 100%)`,
-                    borderBottom: '1px solid #eef2f6',
+                    background: `linear-gradient(180deg, ${sectionAccentSoft} 0%, ${dark ? '#1e293b' : '#ffffff'} 100%)`,
+                    borderBottom: `1px solid ${dark ? '#2d3f55' : '#eef2f6'}`,
                   }}>
                     <div style={{
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                       width: '40px', height: '40px', borderRadius: '12px',
-                      backgroundColor: 'white',
+                      backgroundColor: dark ? '#263147' : 'white',
                       border: `1px solid ${sectionAccent}33`,
-                      boxShadow: '0 1px 2px rgba(15,23,42,0.06)',
+                      boxShadow: dark ? 'none' : '0 1px 2px rgba(15,23,42,0.06)',
                       fontSize: '22px', lineHeight: 1, flexShrink: 0,
                     }}>
                       <span role="img" aria-hidden="true">{cat.icon ?? '🏥'}</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 0 }}>
                       <span style={{
-                        fontSize: '18px', fontWeight: 800, color: '#0f172a',
+                        fontSize: '18px', fontWeight: 800, color: dark ? '#f8fafc' : '#0f172a',
                         letterSpacing: '-0.01em',
                       }}>
                         {cat.label}
@@ -769,10 +819,11 @@ const Results = () => {
                       onClick={() => setSelectedPlace(bestOverall)}
                       flush
                       fallbackIcon={cat.icon ?? '🏥'}
+                      dark={dark}
                     />
                   )}
                   {bestOverall && secondResult && (
-                    <div style={{ height: '1px', backgroundColor: '#eef2f6', margin: '0 16px' }} />
+                    <div style={{ height: '1px', backgroundColor: dark ? '#263147' : '#eef2f6', margin: '0 16px' }} />
                   )}
                   {secondResult && (
                     <ResultCard
@@ -784,6 +835,7 @@ const Results = () => {
                       onClick={() => setSelectedPlace(secondResult)}
                       flush
                       fallbackIcon={cat.icon ?? '🏥'}
+                      dark={dark}
                     />
                   )}
                 </div>
@@ -808,7 +860,9 @@ const Results = () => {
             <div style={{
               position: 'absolute', inset: 0,
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              backgroundColor: '#f0f9f7', color: '#94a3b8', pointerEvents: 'none',
+              backgroundColor: dark ? '#0d1b2e' : '#f0f9f7',
+              color: dark ? '#4a6278' : '#94a3b8',
+              pointerEvents: 'none',
             }}>
               <div style={{ fontSize: '48px', marginBottom: '12px', opacity: 0.4 }}>📍</div>
               <p style={{ margin: 0, fontWeight: 600, fontSize: '16px' }}>Interactive Map</p>
