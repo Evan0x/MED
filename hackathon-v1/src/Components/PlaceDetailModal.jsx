@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useSystemDarkMode } from '../useSystemDarkMode';
+import { getDirectionsUrl, getPhotoUrl } from '../location/place';
 
 const TEAL = '#0f766e';
 const TEAL_DARK = '#2dd4bf';
@@ -28,19 +29,20 @@ const InfoRow = ({ icon, label, value, href, dark }) => {
   );
 };
 
-const PlaceDetailModal = ({ place, details, onClose }) => {
+const PlaceDetailModal = ({ place, details, origin, onClose }) => {
   const dark = useSystemDarkMode();
   const accent = dark ? TEAL_DARK : TEAL;
 
-  const photoUrl =
-    details?.photos?.[0]?.getUrl?.({ maxWidth: 900, maxHeight: 400 }) ||
-    place.photos?.[0]?.getUrl?.({ maxWidth: 900, maxHeight: 400 });
-
-  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-    (place.name ?? '') + ' ' + (place.vicinity ?? '')
-  )}&destination_place_id=${place.place_id}`;
+  const photoUrl = getPhotoUrl(place, details);
+  const directionsUrl = getDirectionsUrl(place, origin);
 
   const websiteUrl = details?.website;
+  let websiteHost = null;
+  try {
+    websiteHost = websiteUrl ? new URL(websiteUrl).hostname.replace('www.', '') : null;
+  } catch {
+    websiteHost = websiteUrl || null;
+  }
 
   const primaryTypes = (place.types ?? [])
     .filter((t) => !['point_of_interest', 'establishment'].includes(t))
@@ -213,7 +215,7 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
             <InfoRow icon="📍" label="Address" value={place.vicinity} dark={dark} />
             <InfoRow icon="📞" label="Phone" value={details?.phone} href={details?.phone ? `tel:${details.phone}` : null} dark={dark} />
             <InfoRow icon="🌐" label="Website"
-              value={websiteUrl ? new URL(websiteUrl).hostname.replace('www.', '') : null}
+              value={websiteHost}
               href={websiteUrl}
               dark={dark}
             />
@@ -238,7 +240,11 @@ const PlaceDetailModal = ({ place, details, onClose }) => {
           {/* About */}
           <div>
             <h3 style={{ margin: '0 0 18px', fontSize: '16px', fontWeight: 700, color: dark ? '#f8fafc' : '#1e293b' }}>About</h3>
-            {firstReview ? (
+            {details?.about ? (
+              <p style={{ margin: 0, fontSize: '14px', color: dark ? '#94a3b8' : '#475569', lineHeight: 1.6 }}>
+                {details.about}
+              </p>
+            ) : firstReview ? (
               <p style={{ margin: 0, fontSize: '14px', color: dark ? '#94a3b8' : '#475569', lineHeight: 1.6, fontStyle: 'italic' }}>
                 "{firstReview.text?.slice(0, 220)}{firstReview.text?.length > 220 ? '…' : ''}"
               </p>

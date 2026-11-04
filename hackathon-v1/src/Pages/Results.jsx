@@ -1,11 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AuthHeader from '../Components/AuthHeader';
 import PlaceDetailModal from '../Components/PlaceDetailModal';
-import { loadGoogleMaps } from '../googleMaps';
+import PlaceResultCard from '../Components/PlaceResultCard';
+import MapView from '../Components/MapView';
+import AddressAutocomplete from '../Components/AddressAutocomplete';
 import { useSystemDarkMode } from '../useSystemDarkMode';
-
-// ── Bayesian rating helpers ───────────────────────────────────────────────────
+import { SECTIONS, groupPlaces, uniquePlaces } from '../location/categories';
+import { detailsMapFromPlaces, LIST_PER_CATEGORY, SEARCH_RADIUS_METERS } from '../location/place';
+import {
+  debounce,
+  getCurrentPosition,
+  reverseGeocode,
+  searchNearby,
+  shouldRefetchForMove,
+} from '../location/locationService';
 
 function bayesianRating(rating, reviewCount, poolMeanRating, confidenceThreshold) {
   const v = reviewCount ?? 0;
@@ -41,17 +50,12 @@ function getBestOverall(filtered) {
   return scored[0]?.place ?? null;
 }
 
-function getSecondResult(filtered, sortMethod, bestOverallId) {
-  const available = filtered.filter((p) => p.place_id !== bestOverallId);
-  if (available.length === 0) return null;
+function sortRemaining(available, sortMethod) {
+  if (available.length === 0) return [];
   const stats = poolStats(available);
   switch (sortMethod) {
-    case 'distance':
-      return available[0];
-    case 'cheapest': {
-      const sorted = [...available].sort((a, b) => (a.price_level ?? 2) - (b.price_level ?? 2));
-      return sorted[0];
-    }
+    case 'cheapest':
+      return [...available].sort((a, b) => (a.price_level ?? 2) - (b.price_level ?? 2));
     case 'highest_rating': {
       const rated = available
         .filter((p) => p.rating != null)
@@ -59,41 +63,36 @@ function getSecondResult(filtered, sortMethod, bestOverallId) {
           place: p,
           adjustedRating: bayesianRating(p.rating, p.user_ratings_total, stats.meanRating, stats.meanReviews),
         }))
-        .sort((a, b) => b.adjustedRating - a.adjustedRating);
-      return rated[0]?.place ?? available[0];
+        .sort((a, b) => b.adjustedRating - a.adjustedRating)
+        .map((row) => row.place);
+      return rated.length ? [...rated, ...available.filter((p) => p.rating == null)] : [...available];
     }
-    case 'most_reviewed': {
-      const byReviews = [...available].sort((a, b) => (b.user_ratings_total ?? 0) - (a.user_ratings_total ?? 0));
-      return byReviews[0];
-    }
-    case 'insurance': {
-      const byInsurance = [...available]
+    case 'most_reviewed':
+      return [...available].sort((a, b) => (b.user_ratings_total ?? 0) - (a.user_ratings_total ?? 0));
+    case 'insurance':
+      return [...available]
         .map((p) => ({ place: p, insuranceScore: calculateInsuranceScore(p) }))
-        .sort((a, b) => b.insuranceScore - a.insuranceScore);
-      return byInsurance[0]?.place ?? available[0];
-    }
+        .sort((a, b) => b.insuranceScore - a.insuranceScore)
+        .map((row) => row.place);
     default:
-      return available[0];
+      return [...available];
   }
 }
 
-// ── Search helpers ─────────────────────────────────────────────────────────────
-
-function nearbySearchPromise(service, params) {
-  return new Promise((resolve) => {
-    service.nearbySearch(params, (results, status) => {
-      resolve({ results: results ?? [], status });
-    });
-  });
-}
-
-function placeDetailsPromise(service, placeId) {
-  return new Promise((resolve) => {
-    service.getDetails(
-      { placeId, fields: ['opening_hours', 'website', 'formatted_phone_number', 'photos', 'reviews', 'url'] },
-      (result, status) => { resolve({ placeId, data: result, status }); }
-    );
-  });
+function getListedPlaces(filtered, sortMethod, limit = LIST_PER_CATEGORY) {
+  if (filtered.length === 0) return [];
+  const hasRatings = filtered.some((p) => p.rating != null);
+  const lead = hasRatings ? getBestOverall(filtered) : filtered[0];
+  if (!lead) return [];
+  const sortLabel = SORT_OPTIONS.find((o) => o.value === sortMethod)?.label ?? 'Nearby';
+  const rest = sortRemaining(
+    filtered.filter((p) => p.place_id !== lead.place_id),
+    sortMethod,
+  ).slice(0, Math.max(0, limit - 1));
+  return [
+    { place: lead, label: hasRatings ? 'Best Overall' : 'Nearest' },
+    ...rest.map((place, index) => ({ place, label: index === 0 ? sortLabel : 'Nearby' })),
+  ];
 }
 
 function calculateInsuranceScore(place) {
@@ -116,145 +115,6 @@ function calculateInsuranceScore(place) {
   return score;
 }
 
-// ── Category & section config ─────────────────────────────────────────────────
-
-// Reject non-human / irrelevant results (animal clinics, vet pharmacies, pet stores, etc.)
-const ANIMAL_TYPES = new Set(['veterinary_care', 'pet_store', 'zoo', 'aquarium']);
-const ANIMAL_NAME_PATTERNS = [
-  'veterinar', 'vet ', 'vet-', ' vet', 'animal', 'pet ', 'pets ', ' pets', 'pet-',
-  'canine', 'feline', 'equine', 'kennel', 'dog ', 'cat ', 'avian', 'reptile',
-  'wildlife', 'zoo', 'aquarium', 'groomer', 'grooming',
-];
-function isHumanOriented(place) {
-  const types = place.types ?? [];
-  if (types.some((t) => ANIMAL_TYPES.has(t))) return false;
-  const name = ` ${(place.name ?? '').toLowerCase()} `;
-  if (ANIMAL_NAME_PATTERNS.some((kw) => name.includes(kw))) return false;
-  return true;
-}
-
-// Irrelevant retail types that sometimes surface in medical searches
-const RETAIL_NOISE_TYPES = new Set([
-  'clothing_store', 'shoe_store', 'jewelry_store', 'book_store',
-  'home_goods_store', 'furniture_store', 'hardware_store', 'electronics_store',
-  'liquor_store', 'bar', 'night_club', 'gas_station', 'car_repair',
-  'beauty_salon', 'hair_care', 'spa',
-]);
-function hasRetailNoise(place) {
-  const types = place.types ?? [];
-  return types.some((t) => RETAIL_NOISE_TYPES.has(t));
-}
-
-const SECTIONS = [
-  {
-    id: 'medical', label: 'Get Well',
-    icon: '🏥',
-    accent: '#0f766e',
-    accentDark: '#2dd4bf',
-    accentSoft: '#ecfdf5',
-    accentSoftDark: '#0d2821',
-    categories: [
-      {
-        id: 'pharmacy', label: 'Pharmacy',
-        icon: '💊',
-        searchParams: { type: 'pharmacy' },
-        filter: (p) => {
-          const types = p.types ?? [];
-          const name = (p.name ?? '').toLowerCase();
-          if (!isHumanOriented(p)) return false;
-          if (hasRetailNoise(p)) return false;
-          // Must be a pharmacy OR drugstore (type 'drugstore' is newer Google Places type)
-          const isPharmacy = types.includes('pharmacy') || types.includes('drugstore');
-          const nameLooksLikePharmacy =
-            name.includes('pharmacy') || name.includes('drugstore') || name.includes('drug store') ||
-            name.includes('chemist') || name.includes('apothecary') || name.includes('rx');
-          return isPharmacy || nameLooksLikePharmacy;
-        },
-      },
-      {
-        id: 'er', label: 'ER / Emergency',
-        icon: '🚑',
-        searchParams: { type: 'hospital', keyword: 'emergency' },
-        filter: (p) => {
-          const types = p.types ?? [];
-          if (!isHumanOriented(p)) return false;
-          return types.includes('hospital');
-        },
-      },
-      {
-        id: 'dentist', label: 'Dentist',
-        icon: '🦷',
-        searchParams: { type: 'dentist' },
-        filter: (p) => {
-          const types = p.types ?? [];
-          const name = (p.name ?? '').toLowerCase();
-          if (!isHumanOriented(p)) return false;
-          return types.includes('dentist') || name.includes('dental') || name.includes('orthodont') || name.includes('dentist');
-        },
-      },
-      {
-        id: 'clinic', label: 'Clinic',
-        icon: '🩺',
-        searchParams: { type: 'doctor', keyword: 'clinic urgent care walk-in' },
-        filter: (p) => {
-          const types = p.types ?? [];
-          const name = (p.name ?? '').toLowerCase();
-          if (!isHumanOriented(p)) return false;
-          if (hasRetailNoise(p)) return false;
-          return types.includes('doctor') || types.includes('health') ||
-            name.includes('clinic') || name.includes('urgent') ||
-            name.includes('walk-in') || name.includes('walk in') ||
-            name.includes('medical') || name.includes('physician');
-        },
-      },
-      {
-        id: 'optician', label: 'Optician',
-        icon: '👓',
-        searchParams: { keyword: 'optician optometrist eye care vision' },
-        filter: (p) => {
-          const name = (p.name ?? '').toLowerCase();
-          if (!isHumanOriented(p)) return false;
-          if (hasRetailNoise(p)) return false;
-          return name.includes('optic') || name.includes('optom') || name.includes('vision') ||
-            name.includes('eye') || name.includes('lens') || name.includes('spectacl') ||
-            name.includes('eyeglass') || name.includes('eyewear');
-        },
-      },
-    ],
-  },
-  {
-    id: 'wellness', label: 'Stay Well',
-    icon: '🌿',
-    accent: '#15803d',
-    accentDark: '#4ade80',
-    accentSoft: '#f0fdf4',
-    accentSoftDark: '#0d2018',
-    categories: [
-      {
-        id: 'gym', label: 'Gym', icon: '🏋️', searchParams: { type: 'gym' },
-        filter: (p) => { const types = p.types ?? []; const name = (p.name ?? '').toLowerCase(); return types.includes('gym') || name.includes('gym') || name.includes('fitness') || name.includes('crossfit') || name.includes('yoga') || name.includes('pilates'); },
-      },
-      { id: 'outdoor', label: 'Outdoor Space', icon: '🌳', searchParams: { type: 'park' }, filter: (p) => { const types = p.types ?? []; return types.includes('park') || types.includes('natural_feature') || types.includes('campground') || types.includes('stadium'); } },
-      {
-        id: 'community', label: 'Community Center', icon: '🏛️', searchParams: { keyword: 'community center recreation center' },
-        filter: (p) => { const name = (p.name ?? '').toLowerCase(); return name.includes('community') || name.includes('recreation') || name.includes('rec ') || name.includes('civic') || name.includes('centre') || name.includes('center') || name.includes('ymca') || name.includes('ywca'); },
-      },
-      {
-        id: 'therapist', label: 'Therapist', icon: '🧠', searchParams: { keyword: 'therapist counseling mental health psychology' },
-        filter: (p) => { const types = p.types ?? []; const name = (p.name ?? '').toLowerCase(); return types.includes('physiotherapist') || name.includes('therap') || name.includes('counsel') || name.includes('mental') || name.includes('psych') || name.includes('behav'); },
-      },
-      {
-        id: 'healthy_eating', label: 'Healthy Eating', icon: '🥗', searchParams: { keyword: 'healthy organic vegan salad juice bar' },
-        filter: (p) => {
-          const types = p.types ?? []; const name = (p.name ?? '').toLowerCase();
-          const foodTypes = ['restaurant', 'food', 'cafe', 'bakery', 'meal_takeaway', 'meal_delivery', 'health_food_store', 'grocery_or_supermarket'];
-          return types.some((t) => foodTypes.includes(t)) || name.includes('health') || name.includes('organic') || name.includes('vegan') || name.includes('salad') || name.includes('juice') || name.includes('natural') || name.includes('wholesome');
-        },
-      },
-    ],
-  },
-];
-
 const SORT_OPTIONS = [
   { value: 'distance', label: 'Nearest' },
   { value: 'cheapest', label: 'Cheapest' },
@@ -265,319 +125,214 @@ const SORT_OPTIONS = [
 
 const TEAL = '#0f766e';
 const TEAL_DARK = '#2dd4bf';
-const AMBER = '#f59e0b';
 
-// Google Maps dark-mode styles
-const DARK_MAP_STYLES = [
-  { elementType: 'geometry', stylers: [{ color: '#1a2235' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a2235' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8a9bb0' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#c4b98a' }] },
-  { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#283549' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#172030' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#7a8898' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3d4f6a' }] },
-  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#111d2b' }] },
-  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#e8d5a0' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'simplified' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0d1b2e' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3d5068' }] },
-];
-
-const LIGHT_MAP_STYLES = [
-  { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'simplified' }] },
-];
-
-// ── Result Card ───────────────────────────────────────────────────────────────
-
-const ResultCard = ({ place, label, catLabel, details, showInsuranceIndicator, onClick, flush = false, fallbackIcon = '🏥', dark = false }) => {
-  const [hovered, setHovered] = useState(false);
-  const [imageFailed, setImageFailed] = useState(false);
-  const photoUrl = place.photos?.[0]?.getUrl?.({ maxWidth: 160, maxHeight: 160 });
-  const showImage = photoUrl && !imageFailed;
-  const isOpen = place.opening_hours?.open_now;
-  const insuranceScore = showInsuranceIndicator ? calculateInsuranceScore(place) : 0;
-  const accent = dark ? TEAL_DARK : TEAL;
-
-  const labelColor = label === 'Best Overall'
-    ? {
-        bg: dark ? '#0d2821' : '#f0fdf4',
-        color: accent,
-        border: dark ? '#1a5c58' : '#bbf7d0',
-      }
-    : {
-        bg: dark ? '#2a1f0a' : '#fffbeb',
-        color: dark ? '#fbbf24' : '#92400e',
-        border: dark ? '#78350f' : '#fde68a',
-      };
-
-  const standaloneStyle = {
-    borderRadius: '14px',
-    border: `1px solid ${hovered ? (dark ? '#334155' : '#cbd5e1') : (dark ? '#243041' : '#e2e8f0')}`,
-    marginBottom: '12px',
-    backgroundColor: hovered ? (dark ? '#1a2535' : '#f8fafc') : (dark ? '#1e293b' : 'white'),
-    boxShadow: hovered ? '0 4px 16px rgba(0,0,0,0.08)' : '0 1px 4px rgba(0,0,0,0.04)',
-  };
-
-  const flushStyle = {
-    borderRadius: 0,
-    border: 'none',
-    marginBottom: 0,
-    backgroundColor: hovered ? (dark ? '#1a2535' : '#f8fafc') : 'transparent',
-    boxShadow: 'none',
-  };
+function DiscoveryList({
+  sections,
+  activeSection,
+  categoryData,
+  excludeClosed,
+  sortMethod,
+  selectedId,
+  placeDetails,
+  dark,
+  onSelect,
+  onOpenDetails,
+}) {
+  const activeCategories = sections[activeSection].categories;
+  const sectionAccent = dark
+    ? (sections[activeSection].accentDark ?? TEAL_DARK)
+    : (sections[activeSection].accent ?? TEAL);
 
   return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex',
-        gap: '14px',
-        padding: flush ? '14px 16px' : '16px',
-        cursor: 'pointer',
-        transition: 'all 0.15s ease',
-        alignItems: 'flex-start',
-        ...(flush ? flushStyle : standaloneStyle),
-      }}
-    >
-      {/* Thumbnail */}
-      <div style={{
-        width: '80px', height: '80px', borderRadius: '10px', flexShrink: 0, overflow: 'hidden',
-        backgroundColor: dark ? '#263147' : '#f1f5f9',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        {showImage ? (
-          <img
-            src={photoUrl}
-            alt={place.name}
-            onError={() => setImageFailed(true)}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        ) : (
-          <span style={{ fontSize: '32px', lineHeight: 1 }} role="img" aria-label="No photo available">{fallbackIcon}</span>
-        )}
-      </div>
-
-      {/* Info */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
-          <span style={{ fontWeight: 700, fontSize: '15px', color: dark ? '#f8fafc' : '#1e293b', lineHeight: 1.3 }}>{place.name}</span>
-          {place.rating != null && (
-            <span style={{ flexShrink: 0, fontSize: '13px', color: dark ? '#f8fafc' : '#1e293b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
-              <span style={{ color: AMBER }}>★</span>
-              {place.rating.toFixed(1)}
-              <span style={{ color: '#94a3b8', fontWeight: 400 }}>({place.user_ratings_total ?? 0})</span>
-            </span>
-          )}
-        </div>
-
-        {/* Category + label badges */}
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
-          <span style={{
-            padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
-            backgroundColor: dark ? '#263147' : '#f1f5f9', color: dark ? '#94a3b8' : '#475569',
-          }}>{catLabel}</span>
-          <span style={{
-            padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
-            backgroundColor: labelColor.bg, color: labelColor.color, border: `1px solid ${labelColor.border}`,
-          }}>{label}</span>
-          {showInsuranceIndicator && insuranceScore > 15 && (
-            <span style={{
-              padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600,
-              backgroundColor: dark ? '#0d2018' : '#f0fdf4',
-              color: dark ? '#4ade80' : '#15803d',
-              border: `1px solid ${dark ? '#166534' : '#bbf7d0'}`,
-            }}>💳 Insurance</span>
-          )}
-        </div>
-
-        {place.vicinity && (
-          <div style={{ fontSize: '13px', color: dark ? '#94a3b8' : '#64748b', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span>📍</span> {place.vicinity}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {place.opening_hours && (
-            <span style={{ fontSize: '12px', fontWeight: 600, color: isOpen ? '#16a34a' : '#dc2626' }}>
-              {isOpen ? '● Open' : '● Closed'}
-            </span>
-          )}
-          {details?.hours?.weekday_text?.[((new Date().getDay() + 6) % 7)] && (
-            <span style={{ fontSize: '12px', color: '#94a3b8' }}>
-              · {details.hours.weekday_text[((new Date().getDay() + 6) % 7)].split(': ')[1]}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Chevron */}
-      <div style={{ color: dark ? '#475569' : '#cbd5e1', fontSize: '18px', flexShrink: 0, alignSelf: 'center', marginLeft: '4px' }}>›</div>
+    <div className="discovery-list" data-testid="discovery-list">
+      {activeCategories.map((cat) => {
+        let allPlaces = categoryData?.[cat.id]?.allPlaces ?? [];
+        if (excludeClosed) allPlaces = allPlaces.filter((p) => p.opening_hours?.open_now);
+        if (allPlaces.length === 0) return null;
+        const listed = getListedPlaces(allPlaces, sortMethod);
+        return (
+          <section key={cat.id} className="discovery-group">
+            <header className="discovery-group-header" style={{ borderLeftColor: sectionAccent }}>
+              <span aria-hidden="true">{cat.icon ?? '🏥'}</span>
+              <div>
+                <h2>{cat.label}</h2>
+                <p>{listed.length} {listed.length === 1 ? 'match' : 'matches'}</p>
+              </div>
+            </header>
+            {listed.map((item) => (
+              <PlaceResultCard
+                key={item.place.place_id}
+                place={item.place}
+                label={item.label}
+                catLabel={cat.label}
+                details={placeDetails[item.place.place_id]}
+                selected={item.place.place_id === selectedId}
+                onClick={() => onSelect(item.place)}
+                onOpenDetails={onOpenDetails}
+                fallbackIcon={cat.icon ?? '🏥'}
+                dark={dark}
+              />
+            ))}
+          </section>
+        );
+      })}
     </div>
   );
-};
-
-// ── Main component ─────────────────────────────────────────────────────────────
+}
 
 const Results = () => {
   const { state } = useLocation();
   const navigate = useNavigate();
-  const mapDivRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const markersRef = useRef([]);
-  const userMarkerRef = useRef(null);
   const dark = useSystemDarkMode();
   const accent = dark ? TEAL_DARK : TEAL;
+  const searchInputRef = useRef(null);
 
   const [activeSection, setActiveSection] = useState(0);
   const [categoryData, setCategoryData] = useState(null);
-  const [loadingStatus, setLoadingStatus] = useState('Searching nearby places…');
   const [excludeClosed, setExcludeClosed] = useState(false);
   const [placeDetails, setPlaceDetails] = useState({});
   const [secondSortMethod, setSecondSortMethod] = useState('distance');
-  const [selectedPlace, setSelectedPlace] = useState(null);
+  const [selection, setSelection] = useState(null);
+  const [detailPlace, setDetailPlace] = useState(null);
+  const [error, setError] = useState('');
+  const [dataKey, setDataKey] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+  const [areaPrompt, setAreaPrompt] = useState(null);
+  const [areaSearching, setAreaSearching] = useState(false);
+  const lastSearchRef = useRef(null);
+  const viewportAbortRef = useRef(null);
+  const viewportHandlerRef = useRef(() => {});
+  const searchKeyRef = useRef('');
+  const searchKey = state?.lat != null && state?.lng != null ? `${state.lat},${state.lng}` : '';
+  searchKeyRef.current = searchKey;
+  const selectedPlace = selection?.key === searchKey ? selection.place : null;
+  const liveAreaPrompt = areaPrompt?.key === searchKey ? areaPrompt : null;
+  const loadingStatus = searchKey && dataKey !== searchKey && !error ? 'Searching nearby places…' : '';
+  const visibleCategoryData = dataKey === searchKey ? categoryData : null;
 
-  // ── Initialize map + run searches ──
   useEffect(() => {
-    if (!state) return;
-    const { lat, lng } = state;
+    if (!state?.lat || !state?.lng) return undefined;
+    const controller = new AbortController();
+    const key = `${state.lat},${state.lng}`;
+    lastSearchRef.current = { lat: state.lat, lng: state.lng };
 
-    const runAllSearches = () => {
-      const mapInstance = new window.google.maps.Map(mapDivRef.current, {
-        center: { lat, lng },
-        zoom: 14,
-        disableDefaultUI: false,
-        zoomControl: true,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: true,
-        styles: dark ? DARK_MAP_STYLES : LIGHT_MAP_STYLES,
-      });
-      mapInstanceRef.current = mapInstance;
-
-      // User location marker
-      userMarkerRef.current = new window.google.maps.Marker({
-        position: { lat, lng },
-        map: mapInstance,
-        title: 'Your Location',
-        icon: {
-          path: window.google.maps.SymbolPath.CIRCLE,
-          scale: 10,
-          fillColor: accent,
-          fillOpacity: 1,
-          strokeColor: 'white',
-          strokeWeight: 3,
-        },
-        zIndex: 999,
-      });
-
-      const service = new window.google.maps.places.PlacesService(mapInstance);
-      const allCategories = SECTIONS.flatMap((s) => s.categories);
-      const center = new window.google.maps.LatLng(lat, lng);
-
-      const searches = allCategories.map((cat) => {
-        const params = { location: center, rankBy: window.google.maps.places.RankBy.DISTANCE, ...cat.searchParams };
-        return nearbySearchPromise(service, params).then(({ results }) => {
-          const filtered = results.filter(cat.filter).slice(0, 20);
-          return { id: cat.id, allPlaces: filtered };
-        });
-      });
-
-      Promise.all(searches).then((results) => {
-        const data = {};
-        results.forEach((r) => { data[r.id] = { allPlaces: r.allPlaces }; });
-        setCategoryData(data);
-        setLoadingStatus('');
-
-        // Fetch detailed info for all places
-        const allPlaces = results.flatMap((r) => r.allPlaces).filter(Boolean);
-        const detailsPromises = allPlaces.map((place) =>
-          placeDetailsPromise(service, place.place_id)
-        );
-
-        Promise.all(detailsPromises).then((detailResults) => {
-          const detailsMap = {};
-          detailResults.forEach((d) => {
-            detailsMap[d.placeId] = {
-              hours: d.data?.opening_hours,
-              website: d.data?.website,
-              phone: d.data?.formatted_phone_number,
-              photos: d.data?.photos,
-              reviews: d.data?.reviews,
-              url: d.data?.url,
-            };
-          });
-          setPlaceDetails(detailsMap);
-        });
-      });
-    };
-
-    // Also covers opening /results directly (refresh), where the home page never loaded Maps
-    loadGoogleMaps(runAllSearches);
-  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Sync map styles when dark mode changes ──
-  useEffect(() => {
-    if (!mapInstanceRef.current) return;
-    mapInstanceRef.current.setOptions({ styles: dark ? DARK_MAP_STYLES : LIGHT_MAP_STYLES });
-  }, [dark]);
-
-  // ── Update map markers when section / data changes ──
-  useEffect(() => {
-    if (!categoryData || !mapInstanceRef.current) return;
-
-    markersRef.current.forEach((m) => m.setMap(null));
-    markersRef.current = [];
-
-    const activeCategories = SECTIONS[activeSection].categories;
-    activeCategories.forEach((cat) => {
-      const places = categoryData[cat.id]?.allPlaces ?? [];
-      places.forEach((place) => {
-        if (!place.geometry?.location) return;
-        const marker = new window.google.maps.Marker({
-          position: place.geometry.location,
-          map: mapInstanceRef.current,
-          title: place.name,
-          icon: {
-            path: window.google.maps.SymbolPath.CIRCLE,
-            scale: 8,
-            fillColor: place.opening_hours?.open_now ? '#16a34a' : '#dc2626',
-            fillOpacity: 0.9,
-            strokeColor: 'white',
-            strokeWeight: 2,
-          },
-        });
-        marker.addListener('click', () => setSelectedPlace(place));
-        markersRef.current.push(marker);
-      });
+    searchNearby({
+      lat: state.lat,
+      lng: state.lng,
+      radius: SEARCH_RADIUS_METERS,
+      signal: controller.signal,
+    }).then((data) => {
+      setCategoryData(groupPlaces(data.places));
+      setPlaceDetails(detailsMapFromPlaces(data.places));
+      setError('');
+      setDataKey(key);
+    }).catch((err) => {
+      if (err?.name === 'AbortError') return;
+      setError(err?.message || 'Nearby search is temporarily unavailable. Please try again.');
+      setCategoryData(null);
+      setDataKey(key);
     });
 
-    // Detach markers on unmount too, so a reset/navigation leaves no strays
-    return () => {
-      markersRef.current.forEach((m) => m.setMap(null));
-      markersRef.current = [];
-    };
-  }, [categoryData, activeSection]);
+    return () => controller.abort();
+  }, [state]);
 
-  // Drop the user-location pin when the page goes away
-  useEffect(() => () => {
-    userMarkerRef.current?.setMap(null);
-    userMarkerRef.current = null;
-  }, []);
+  useEffect(() => {
+    if (!selectedPlace?.place_id) return undefined;
+    const node = document.querySelector(`[data-place-id="${selectedPlace.place_id}"]`);
+    node?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    return undefined;
+  }, [selectedPlace]);
+
+  viewportHandlerRef.current = (next) => {
+    if (!shouldRefetchForMove(lastSearchRef.current, next)) {
+      setAreaPrompt(null);
+      return;
+    }
+    setAreaPrompt({ key: searchKeyRef.current, ...next });
+  };
+
+  const handleViewportChange = useMemo(
+    () => debounce((next) => viewportHandlerRef.current(next), 280),
+    [],
+  );
+
+  useEffect(() => () => handleViewportChange.cancel?.(), [handleViewportChange]);
+
+  const applyPlaces = (data) => {
+    setCategoryData(groupPlaces(data.places));
+    setPlaceDetails(detailsMapFromPlaces(data.places));
+  };
+
+  const searchThisArea = () => {
+    if (!liveAreaPrompt) return;
+    viewportAbortRef.current?.abort();
+    const controller = new AbortController();
+    viewportAbortRef.current = controller;
+    lastSearchRef.current = { lat: liveAreaPrompt.lat, lng: liveAreaPrompt.lng };
+    setAreaSearching(true);
+    searchNearby({
+      lat: liveAreaPrompt.lat,
+      lng: liveAreaPrompt.lng,
+      radius: SEARCH_RADIUS_METERS,
+      bounds: liveAreaPrompt.bounds,
+      signal: controller.signal,
+    }).then((data) => {
+      applyPlaces(data);
+      setAreaPrompt(null);
+      setError('');
+    }).catch((err) => {
+      if (err?.name === 'AbortError') return;
+    }).finally(() => setAreaSearching(false));
+  };
+
+  const goToLocation = (loc) => {
+    navigate('/results', { state: loc, replace: true });
+  };
+
+  const handleLocateMe = async () => {
+    try {
+      const coords = await getCurrentPosition();
+      let address = `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`;
+      try {
+        const result = await reverseGeocode(coords.lat, coords.lng);
+        if (result?.address) address = result.address;
+      } catch {
+        // Continue with coordinates when reverse geocoding is unavailable.
+      }
+      goToLocation({
+        address,
+        lat: coords.lat,
+        lng: coords.lng,
+      });
+    } catch (err) {
+      setError(err?.message || 'Could not use your current location.');
+    }
+  };
+
+  const retrySearch = () => {
+    if (!state?.lat) return;
+    setError('');
+    setDataKey('');
+    searchNearby({ lat: state.lat, lng: state.lng, radius: SEARCH_RADIUS_METERS })
+      .then((data) => {
+        applyPlaces(data);
+        setDataKey(`${state.lat},${state.lng}`);
+      })
+      .catch((err) => {
+        setError(err?.message || 'Nearby search is temporarily unavailable. Please try again.');
+        setCategoryData(null);
+        setDataKey(`${state.lat},${state.lng}`);
+      });
+  };
 
   if (!state) {
     return (
-      <div style={{ fontFamily: 'system-ui, sans-serif', backgroundColor: dark ? '#0b1120' : 'white', minHeight: '100vh' }}>
+      <div className="results-page" style={{ backgroundColor: dark ? '#0b1120' : 'white' }}>
         <AuthHeader />
         <div style={{ padding: '60px', textAlign: 'center' }}>
           <p style={{ color: '#64748b', marginBottom: '20px' }}>No location data found.</p>
-          <button onClick={() => navigate('/')} style={{ padding: '12px 24px', backgroundColor: accent, color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 600 }}>
-            Go back
-          </button>
+          <button className="results-primary-btn" onClick={() => navigate('/')}>Go back</button>
         </div>
       </div>
     );
@@ -585,299 +340,212 @@ const Results = () => {
 
   const activeCategories = SECTIONS[activeSection].categories;
   const cityName = state.address?.split(',').slice(0, 2).join(',') ?? state.address;
+  const mapPlaces = uniquePlaces(
+    activeCategories.flatMap((cat) => {
+      const places = visibleCategoryData?.[cat.id]?.allPlaces ?? [];
+      return excludeClosed ? places.filter((p) => p.opening_hours?.open_now) : places;
+    }),
+  );
 
-  // Count results for active section
   let resultCount = 0;
-  if (categoryData) {
+  if (visibleCategoryData) {
     activeCategories.forEach((cat) => {
-      const data = categoryData[cat.id];
       const places = excludeClosed
-        ? (data?.allPlaces ?? []).filter((p) => p.opening_hours?.open_now)
-        : (data?.allPlaces ?? []);
-      if (places.length > 0) resultCount += Math.min(2, places.length);
+        ? (visibleCategoryData[cat.id]?.allPlaces ?? []).filter((p) => p.opening_hours?.open_now)
+        : (visibleCategoryData[cat.id]?.allPlaces ?? []);
+      if (places.length > 0) resultCount += Math.min(LIST_PER_CATEGORY, places.length);
     });
   }
 
+  const listProps = {
+    sections: SECTIONS,
+    activeSection,
+    categoryData: visibleCategoryData,
+    excludeClosed,
+    sortMethod: secondSortMethod,
+    selectedId: selectedPlace?.place_id,
+    placeDetails,
+    dark,
+    onSelect: (place) => {
+      setSelection({ key: searchKey, place });
+      setSheetExpanded(true);
+    },
+    onOpenDetails: setDetailPlace,
+  };
+
+  const emptyList = visibleCategoryData && !loadingStatus && resultCount === 0;
+
   return (
-    <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: dark ? '#0b1120' : 'white' }}>
+    <div className={`results-page${dark ? ' is-dark' : ''}`}>
       <AuthHeader />
-
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* ── Left panel: results list ── */}
-        <div style={{
-          width: '40%', minWidth: '440px', maxWidth: '640px', flexShrink: 0,
-          display: 'flex', flexDirection: 'column',
-          borderRight: `1px solid ${dark ? '#243041' : '#e2e8f0'}`,
-          overflow: 'hidden',
-          backgroundColor: dark ? '#0f172a' : '#fafbfc',
-        }}>
-          {/* Panel header */}
-          <div style={{ padding: '20px 24px 0', flexShrink: 0 }}>
-            <h2 style={{ margin: '0 0 4px', fontSize: '20px', fontWeight: 700, color: dark ? '#f8fafc' : '#1e293b' }}>
-              Healthcare near{' '}
-              <span style={{ color: accent }}>{cityName}</span>
-            </h2>
-            {!loadingStatus && categoryData && (
-              <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#94a3b8' }}>
-                {resultCount} result{resultCount !== 1 ? 's' : ''} found
-              </p>
-            )}
-            {loadingStatus && (
-              <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#94a3b8' }}>
-                {loadingStatus}
-              </p>
-            )}
-
-            {/* Section selector — segmented control */}
-            <div
-              role="tablist"
-              aria-label="Section"
-              style={{
-                display: 'inline-flex',
-                padding: '4px',
-                gap: '4px',
-                backgroundColor: dark ? '#1e293b' : '#e7ecf1',
-                border: `1px solid ${dark ? '#334155' : '#d8dfe6'}`,
-                borderRadius: '12px',
-                marginBottom: '14px',
-                width: '100%',
-                boxSizing: 'border-box',
-              }}
+      <div className={`results-stage${sidebarOpen ? '' : ' sidebar-collapsed'}`}>
+        <aside className="discovery-sidebar" data-testid="discovery-sidebar">
+          <div className="discovery-toolbar">
+            <div>
+              <p className="discovery-kicker">Healthcare nearby</p>
+              <h1>{cityName}</h1>
+              {!loadingStatus && visibleCategoryData && (
+                <p className="discovery-count">{resultCount} result{resultCount !== 1 ? 's' : ''}</p>
+              )}
+              {loadingStatus && <p className="discovery-count">{loadingStatus}</p>}
+              {error && !loadingStatus && <p className="discovery-error">{error}</p>}
+            </div>
+            <button
+              type="button"
+              className="sidebar-collapse"
+              aria-label="Collapse list"
+              onClick={() => setSidebarOpen(false)}
             >
-              {SECTIONS.map((section, i) => {
-                const active = activeSection === i;
-                return (
-                  <button
-                    key={section.id}
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => setActiveSection(i)}
-                    style={{
-                      flex: 1,
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                      padding: '9px 14px', borderRadius: '9px', border: 'none',
-                      backgroundColor: active ? (dark ? '#334155' : 'white') : 'transparent',
-                      color: active ? (dark ? '#f8fafc' : '#0f172a') : (dark ? '#64748b' : '#64748b'),
-                      fontWeight: 700, fontSize: '13px', cursor: 'pointer',
-                      boxShadow: active ? (dark ? '0 1px 2px rgba(0,0,0,0.4)' : '0 1px 2px rgba(15,23,42,0.08), 0 1px 3px rgba(15,23,42,0.06)') : 'none',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    <span style={{ fontSize: '15px' }}>{section.icon}</span>
-                    <span>{section.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+              ‹
+            </button>
+          </div>
 
-            {/* Filter / sort toolbar */}
-            <div style={{
-              display: 'flex', gap: '8px', alignItems: 'center',
-              padding: '8px 10px',
-              marginBottom: '16px',
-              backgroundColor: dark ? '#1e293b' : 'white',
-              border: `1px solid ${dark ? '#334155' : '#e2e8f0'}`,
-              borderRadius: '12px',
-              boxShadow: dark ? 'none' : '0 1px 2px rgba(15,23,42,0.03)',
-            }}>
+          <div className="discovery-filters" role="tablist" aria-label="Section">
+            {SECTIONS.map((section, i) => (
               <button
-                onClick={() => setExcludeClosed(!excludeClosed)}
-                aria-pressed={excludeClosed}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '6px',
-                  padding: '7px 14px', borderRadius: '999px',
-                  border: `1px solid ${excludeClosed ? accent : (dark ? '#334155' : '#e2e8f0')}`,
-                  backgroundColor: excludeClosed ? accent : (dark ? '#0f172a' : 'white'),
-                  color: excludeClosed ? 'white' : (dark ? '#94a3b8' : '#475569'),
-                  fontSize: '12px', fontWeight: 700, cursor: 'pointer',
-                  transition: 'all 0.15s',
-                }}
+                key={section.id}
+                role="tab"
+                aria-selected={activeSection === i}
+                className={activeSection === i ? 'is-active' : ''}
+                onClick={() => setActiveSection(i)}
               >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%',
-                    backgroundColor: excludeClosed ? 'white' : '#16a34a',
-                  }}
-                />
-                Open now
+                {section.icon} {section.label}
               </button>
-
-              <div style={{ width: '1px', alignSelf: 'stretch', backgroundColor: dark ? '#334155' : '#e2e8f0' }} />
-
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', flexShrink: 0 }}>
-                  Sort
-                </span>
-                <select
-                  value={secondSortMethod}
-                  onChange={(e) => setSecondSortMethod(e.target.value)}
-                  style={{
-                    flex: 1, minWidth: 0,
-                    padding: '7px 28px 7px 12px', borderRadius: '999px',
-                    border: `1px solid ${dark ? '#334155' : '#e2e8f0'}`,
-                    backgroundColor: dark ? '#0f172a' : '#f8fafc',
-                    color: dark ? '#e2e8f0' : '#1e293b',
-                    fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                    appearance: 'none',
-                    backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")',
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 10px center',
-                  }}
-                >
-                  {SORT_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
+            ))}
           </div>
 
-          {/* Scrollable results */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px' }}>
-            {loadingStatus && (
-              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
-                <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔍</div>
-                <p style={{ margin: 0, fontWeight: 500 }}>{loadingStatus}</p>
+          <div className="discovery-sort-row">
+            <button
+              type="button"
+              aria-pressed={excludeClosed}
+              className={`open-now-toggle${excludeClosed ? ' is-on' : ''}`}
+              onClick={() => setExcludeClosed(!excludeClosed)}
+            >
+              Open now
+            </button>
+            <label>
+              Sort
+              <select value={secondSortMethod} onChange={(e) => setSecondSortMethod(e.target.value)}>
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="discovery-scroll">
+            {loadingStatus && <div className="discovery-status">Searching nearby places…</div>}
+            {error && !loadingStatus && !visibleCategoryData && (
+              <div className="discovery-status">
+                <p>{error}</p>
+                <button className="results-primary-btn" onClick={retrySearch}>Try again</button>
               </div>
             )}
-
-            {categoryData && activeCategories.map((cat) => {
-              const data = categoryData[cat.id];
-              let allPlaces = data?.allPlaces ?? [];
-              if (excludeClosed) allPlaces = allPlaces.filter((p) => p.opening_hours?.open_now);
-              if (allPlaces.length === 0) return null;
-
-              const bestOverall = getBestOverall(allPlaces);
-              const secondResult = bestOverall
-                ? getSecondResult(allPlaces, secondSortMethod, bestOverall.place_id)
-                : null;
-              const sortLabel = SORT_OPTIONS.find((o) => o.value === secondSortMethod)?.label ?? 'Alternative';
-              const sectionAccent = dark
-                ? (SECTIONS[activeSection].accentDark ?? TEAL_DARK)
-                : (SECTIONS[activeSection].accent ?? TEAL);
-              const sectionAccentSoft = dark
-                ? (SECTIONS[activeSection].accentSoftDark ?? '#0d2821')
-                : (SECTIONS[activeSection].accentSoft ?? '#ecfdf5');
-              const count = (bestOverall ? 1 : 0) + (secondResult ? 1 : 0);
-
-              return (
-                <div
-                  key={cat.id}
-                  style={{
-                    marginBottom: '22px',
-                    backgroundColor: dark ? '#1e293b' : 'white',
-                    border: `1px solid ${dark ? '#243041' : '#e2e8f0'}`,
-                    borderLeft: `4px solid ${sectionAccent}`,
-                    borderRadius: '14px',
-                    overflow: 'hidden',
-                    boxShadow: dark ? '0 1px 3px rgba(0,0,0,0.3)' : '0 1px 3px rgba(15,23,42,0.05)',
-                  }}
-                >
-                  {/* Group header — visually fused with the cards below */}
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: '12px',
-                    padding: '14px 16px',
-                    background: `linear-gradient(180deg, ${sectionAccentSoft} 0%, ${dark ? '#1e293b' : '#ffffff'} 100%)`,
-                    borderBottom: `1px solid ${dark ? '#2d3f55' : '#eef2f6'}`,
-                  }}>
-                    <div style={{
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      width: '40px', height: '40px', borderRadius: '12px',
-                      backgroundColor: dark ? '#263147' : 'white',
-                      border: `1px solid ${sectionAccent}33`,
-                      boxShadow: dark ? 'none' : '0 1px 2px rgba(15,23,42,0.06)',
-                      fontSize: '22px', lineHeight: 1, flexShrink: 0,
-                    }}>
-                      <span role="img" aria-hidden="true">{cat.icon ?? '🏥'}</span>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, minWidth: 0 }}>
-                      <span style={{
-                        fontSize: '18px', fontWeight: 800, color: dark ? '#f8fafc' : '#0f172a',
-                        letterSpacing: '-0.01em',
-                      }}>
-                        {cat.label}
-                      </span>
-                      <span style={{
-                        fontSize: '11px', fontWeight: 700, color: '#94a3b8',
-                        textTransform: 'uppercase', letterSpacing: '0.6px',
-                        marginTop: '2px',
-                      }}>
-                        {count} {count === 1 ? 'match' : 'matches'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Nested, flush result cards — divider between them to signal grouping */}
-                  {bestOverall && (
-                    <ResultCard
-                      place={bestOverall}
-                      label="Best Overall"
-                      catLabel={cat.label}
-                      details={placeDetails[bestOverall.place_id]}
-                      showInsuranceIndicator={secondSortMethod === 'insurance'}
-                      onClick={() => setSelectedPlace(bestOverall)}
-                      flush
-                      fallbackIcon={cat.icon ?? '🏥'}
-                      dark={dark}
-                    />
-                  )}
-                  {bestOverall && secondResult && (
-                    <div style={{ height: '1px', backgroundColor: dark ? '#263147' : '#eef2f6', margin: '0 16px' }} />
-                  )}
-                  {secondResult && (
-                    <ResultCard
-                      place={secondResult}
-                      label={sortLabel}
-                      catLabel={cat.label}
-                      details={placeDetails[secondResult.place_id]}
-                      showInsuranceIndicator={secondSortMethod === 'insurance'}
-                      onClick={() => setSelectedPlace(secondResult)}
-                      flush
-                      fallbackIcon={cat.icon ?? '🏥'}
-                      dark={dark}
-                    />
-                  )}
-                </div>
-              );
-            })}
-
-            {categoryData && !loadingStatus && resultCount === 0 && (
-              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
-                <div style={{ fontSize: '32px', marginBottom: '12px' }}>😔</div>
-                <p style={{ margin: 0, fontWeight: 500 }}>
-                  {excludeClosed ? 'No open places found. Try disabling the "Open Now" filter.' : 'No results found nearby.'}
-                </p>
+            {visibleCategoryData && <DiscoveryList {...listProps} />}
+            {emptyList && (
+              <div className="discovery-status">
+                {excludeClosed ? 'No open places found. Try disabling Open now.' : 'No results found nearby.'}
               </div>
             )}
           </div>
-        </div>
+        </aside>
 
-        {/* ── Right panel: Google Map ── */}
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          <div ref={mapDivRef} style={{ width: '100%', height: '100%' }} />
-          {!categoryData && (
-            <div style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              backgroundColor: dark ? '#0d1b2e' : '#f0f9f7',
-              color: dark ? '#4a6278' : '#94a3b8',
-              pointerEvents: 'none',
-            }}>
-              <div style={{ fontSize: '48px', marginBottom: '12px', opacity: 0.4 }}>📍</div>
-              <p style={{ margin: 0, fontWeight: 600, fontSize: '16px' }}>Interactive Map</p>
-              <p style={{ margin: '4px 0 0', fontSize: '13px' }}>Clinic locations will appear here</p>
+        <div className="map-stage">
+          <div className="map-float-search">
+            {!sidebarOpen && (
+              <button
+                type="button"
+                className="sidebar-open"
+                aria-label="Open list"
+                onClick={() => setSidebarOpen(true)}
+              >
+                ☰
+              </button>
+            )}
+            <div className="map-search-card">
+              <AddressAutocomplete
+                inputRef={searchInputRef}
+                dark={dark}
+                placeholder="Search a new address…"
+                onResolved={(item) => goToLocation({ address: item.address, lat: item.lat, lng: item.lng })}
+              />
             </div>
+          </div>
+
+          {liveAreaPrompt && (
+            <button
+              type="button"
+              className="search-area-btn"
+              data-testid="search-this-area"
+              onClick={searchThisArea}
+              disabled={areaSearching}
+            >
+              {areaSearching ? 'Searching…' : 'Search this area'}
+            </button>
           )}
+
+          <MapView
+            center={{ lat: state.lat, lng: state.lng }}
+            places={mapPlaces}
+            selectedPlace={selectedPlace}
+            onSelectPlace={(place) => {
+              setSelection({ key: searchKey, place });
+              setSheetExpanded(true);
+              setSidebarOpen(true);
+            }}
+            onViewportChange={handleViewportChange}
+            onLocateMe={handleLocateMe}
+            accent={accent}
+            dark={dark}
+          />
         </div>
+
+        <section className={`discovery-sheet${sheetExpanded ? ' is-expanded' : ''}`} data-testid="discovery-sheet">
+          <button
+            type="button"
+            className="sheet-handle"
+            aria-label={sheetExpanded ? 'Collapse results' : 'Expand results'}
+            onClick={() => setSheetExpanded((open) => !open)}
+          >
+            <span />
+          </button>
+          <div className="sheet-head">
+            <div>
+              <p className="discovery-kicker">Healthcare nearby</p>
+              <h1>{cityName}</h1>
+            </div>
+            <span className="discovery-count">{loadingStatus || `${resultCount} results`}</span>
+          </div>
+          <div className="discovery-filters">
+            {SECTIONS.map((section, i) => (
+              <button
+                key={section.id}
+                className={activeSection === i ? 'is-active' : ''}
+                onClick={() => setActiveSection(i)}
+              >
+                {section.label}
+              </button>
+            ))}
+          </div>
+          <div className="discovery-scroll">
+            {visibleCategoryData && <DiscoveryList {...listProps} />}
+            {emptyList && <div className="discovery-status">No results found nearby.</div>}
+            {error && !visibleCategoryData && (
+              <div className="discovery-status">
+                <p>{error}</p>
+                <button className="results-primary-btn" onClick={retrySearch}>Try again</button>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
 
-      {/* ── Place detail popup ── */}
-      {selectedPlace && (
+      {detailPlace && (
         <PlaceDetailModal
-          place={selectedPlace}
-          details={placeDetails[selectedPlace.place_id]}
-          onClose={() => setSelectedPlace(null)}
+          place={detailPlace}
+          details={placeDetails[detailPlace.place_id]}
+          origin={{ lat: state.lat, lng: state.lng }}
+          onClose={() => setDetailPlace(null)}
         />
       )}
     </div>

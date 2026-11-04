@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import HealthChatbot from '../Components/Healthchatbot';
 import AuthHeader from '../Components/AuthHeader';
+import AddressAutocomplete from '../Components/AddressAutocomplete';
 import { useSystemDarkMode } from '../useSystemDarkMode';
-import { loadGoogleMaps } from '../googleMaps';
+import { geocodeAddress, getCurrentPosition, reverseGeocode } from '../location/locationService';
 
 const Landing = () => {
   const inputRef = useRef(null);
@@ -13,79 +14,53 @@ const Landing = () => {
   const dark = useSystemDarkMode();
   const accent = dark ? '#2dd4bf' : '#0f766e';
 
-  useEffect(() => {
-    loadGoogleMaps(() => {
-      const autocomplete = new window.google.maps.places.Autocomplete(inputRef.current, {
-        types: ['address'],
-      });
-      autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace();
-        if (!place.geometry) return;
-        const loc = {
-          address: place.formatted_address,
-          lat: place.geometry.location.lat(),
-          lng: place.geometry.location.lng(),
-        };
-        setLocation(loc);
-        navigate('/results', { state: loc });
-      });
-    });
-  }, [navigate]);
-
-  const handleLocateMe = () => {
-    if (!navigator.geolocation) {
-      setStatus('Geolocation is not supported by your browser.');
-      return;
-    }
-    setStatus('Locating…');
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        const { latitude, longitude } = coords;
-        if (!window.google?.maps) {
-          setStatus('Google Maps has not loaded yet. Please wait and try again.');
-          return;
-        }
-        new window.google.maps.Geocoder().geocode(
-          { location: { lat: latitude, lng: longitude } },
-          (results, geocoderStatus) => {
-            if (geocoderStatus === 'OK' && results[0]) {
-              const address = results[0].formatted_address;
-              const loc = { address, lat: latitude, lng: longitude };
-              setLocation(loc);
-              if (inputRef.current) inputRef.current.value = address;
-              setStatus('');
-              navigate('/results', { state: loc });
-            } else {
-              setStatus('Could not convert your coordinates to an address.');
-            }
-          }
-        );
-      },
-      ({ message }) => setStatus(`Geolocation error: ${message}`)
-    );
+  const goToResults = (loc) => {
+    setLocation(loc);
+    navigate('/results', { state: loc });
   };
 
-  const handleSearch = () => {
+  const handleLocateMe = async () => {
+    setStatus('Locating…');
+    try {
+      const coords = await getCurrentPosition();
+      let address = `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`;
+      try {
+        const result = await reverseGeocode(coords.lat, coords.lng);
+        if (result?.address) address = result.address;
+      } catch {
+        // Continue with coordinates when reverse geocoding is unavailable.
+      }
+      const loc = {
+        address,
+        lat: coords.lat,
+        lng: coords.lng,
+      };
+      if (inputRef.current) inputRef.current.value = loc.address;
+      setStatus('');
+      goToResults(loc);
+    } catch (err) {
+      setStatus(err?.message || 'Could not access your current location.');
+    }
+  };
+
+  const handleSearch = async () => {
     if (location.lat !== null) {
       navigate('/results', { state: location });
       return;
     }
     const val = inputRef.current?.value?.trim();
     if (!val) { setStatus('Please enter an address.'); return; }
-    if (!window.google?.maps) { setStatus('Google Maps has not loaded yet.'); return; }
     setStatus('Searching…');
-    new window.google.maps.Geocoder().geocode({ address: val }, (results, geocoderStatus) => {
-      if (geocoderStatus === 'OK' && results[0]) {
-        const loc = {
-          address: results[0].formatted_address,
-          lat: results[0].geometry.location.lat(),
-          lng: results[0].geometry.location.lng(),
-        };
-        navigate('/results', { state: loc });
-      } else {
-        setStatus('Address not found. Try selecting from the dropdown.');
-      }
-    });
+    try {
+      const result = await geocodeAddress(val);
+      goToResults({
+        address: result.address,
+        lat: result.lat,
+        lng: result.lng,
+      });
+    } catch (err) {
+      setStatus(err?.message || 'Address not found. Try selecting from the dropdown.');
+    }
   };
 
   const stats = [
@@ -155,22 +130,11 @@ const Landing = () => {
               <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
               <circle cx="12" cy="9" r="2.5" />
             </svg>
-            <input
-              ref={inputRef}
-              type="text"
-              className="landing-search-input"
-              placeholder="Your location..."
-              onChange={() => setLocation({ address: '', lat: null, lng: null })}
-              style={{
-                flex: 1,
-                border: 'none',
-                outline: 'none',
-                fontSize: '16px',
-                color: dark ? '#e2e8f0' : '#1e293b',
-                backgroundColor: 'transparent',
-                padding: '10px 14px',
-                minWidth: 0,
-              }}
+            <AddressAutocomplete
+              inputRef={inputRef}
+              dark={dark}
+              onTyping={() => setLocation({ address: '', lat: null, lng: null })}
+              onResolved={(item) => goToResults({ address: item.address, lat: item.lat, lng: item.lng })}
             />
             <button
               onClick={handleLocateMe}
@@ -221,7 +185,7 @@ const Landing = () => {
           {status && (
             <p style={{
               marginTop: '14px',
-              color: status.startsWith('Geolocation error') || status.startsWith('Could not') || status.startsWith('Address not') ? (dark ? '#f87171' : '#dc2626') : accent,
+              color: status.startsWith('Geolocation error') || status.startsWith('Could not') || status.startsWith('Address not') || status.startsWith('Please enter') || status.includes('unavailable') ? (dark ? '#f87171' : '#dc2626') : accent,
               fontSize: '14px',
               fontWeight: 500,
             }}>
@@ -255,11 +219,6 @@ const Landing = () => {
       {dark && (
         <style>{`
           .landing-search-input::placeholder { color: #64748b; }
-          /* Google Places autocomplete dropdown */
-          .pac-container { background: #1e293b; border: 1px solid #334155; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-          .pac-item { color: #94a3b8; border-top-color: #243041; }
-          .pac-item:hover, .pac-item-selected { background: #243041; }
-          .pac-item-query { color: #e2e8f0; }
         `}</style>
       )}
     </div>

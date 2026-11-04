@@ -31,4 +31,10 @@ export default defineConfig([
     files: ['api/**/*.js', 'vite.config.js'],
     languageOptions: { globals: globals.node },
   },
+  {
+    files: ['**/*.{test,spec}.{js,jsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

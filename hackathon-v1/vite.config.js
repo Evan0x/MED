@@ -49,5 +49,13 @@ export default defineConfig(({ mode }) => {
   }
   return {
     plugins: [react(), devApi()],
+    optimizeDeps: {
+      include: ['maplibre-gl'],
+    },
+    test: {
+      environment: 'node',
+      include: ['**/*.{test,spec}.{js,jsx}'],
+      exclude: ['node_modules', 'dist'],
+    },
   }
 })
