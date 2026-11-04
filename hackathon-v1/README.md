@@ -1,67 +1,149 @@
 # Avela
 
-Avela helps people find nearby healthcare and wellness places, keep a portable health profile, and chat with an on-site health assistant.
+Avela is a healthcare discovery web app for finding nearby clinics, hospitals, pharmacies, and related services.
 
-## Mapping stack
+It includes:
+- location-based healthcare search
+- address autocomplete + geocoding
+- dark-mode map/list experience
+- health profile and assistant features
 
-Google Maps / Places has been replaced with an OpenStreetMap-based stack:
+---
 
-| Need | Provider | Where it runs |
+## Tech stack
+
+- **Frontend:** React + Vite + React Router
+- **Map rendering:** MapLibre GL JS
+- **Geospatial/data providers:** OpenStreetMap ecosystem (Overpass, Photon, Nominatim fallback)
+- **Server routes:** Vercel serverless functions in `/api`
+- **Auth / data:** Clerk + Supabase
+
+---
+
+## Mapping architecture
+
+| Need | Provider | Runtime |
 | --- | --- | --- |
-| Map tiles | [OpenFreeMap](https://openfreemap.org/) vector styles via MapLibre GL JS | Browser |
-| Nearby healthcare POIs | [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API), with Photon / Nominatim fallback | `/api/places` |
-| Address search, reverse geocoding, autocomplete | [Photon](https://photon.komoot.io) | `/api/geocode`, `/api/autocomplete` |
-| Current location | Browser Geolocation API | Landing page and map locate control |
-| Directions link | OSM.org directions with the OSRM engine | Place detail modal |
+| Base map tiles | OpenFreeMap styles via MapLibre | Browser |
+| Nearby healthcare POIs | Overpass API (+ fallback logic) | `/api/places` |
+| Forward + reverse geocode | Photon | `/api/geocode` |
+| Address autocomplete | Photon | `/api/autocomplete` |
+| Current location | Browser Geolocation API | Landing + Results |
+| Directions handoff | OSM.org (OSRM) | Place details |
 
-The frontend talks only to `/api/*` and a stable place model (`id` / `place_id`, `name`, `lat`/`lng`, `types`, `categories`, `vicinity`, `opening_hours`, `phone`, `website`). Overpass and Photon response shapes never leak into UI components.
+The UI consumes normalized place objects from `/api/*` so raw provider response formats do not leak into components.
+
+---
+
+## Quick start
+
+1. Install dependencies
+
+```bash
+npm install
+```
+
+2. Create local environment
+
+```bash
+cp .env.example .env
+```
+
+3. Run development server
+
+```bash
+npm run dev
+```
+
+4. Open the app
+
+```text
+http://localhost:5173
+```
+
+---
 
 ## Scripts
 
 ```bash
-npm install
-npm run dev      # Vite + local /api functions
-npm test         # Vitest
-npm run lint
-npm run build
+npm run dev        # start local dev server
+npm run build      # production build
+npm run preview    # preview built output
+npm run test       # run Vitest once
+npm run test:watch # run Vitest in watch mode
+npm run lint       # run ESLint
 ```
 
-## Environment
+---
 
-Copy `.env.example` to `.env`. Mapping no longer needs a Google Maps browser key. Optional OSM overrides:
+## Environment variables
 
-- `OVERPASS_URL` — Overpass interpreter (falls back to a second public instance on failure)
-- `PHOTON_URL` — Photon base URL
-- `OSM_USER_AGENT` — required identification for OSM usage policy
-- `VITE_MAP_STYLE_URL` — MapLibre style URL (default OpenFreeMap Positron)
-- `VITE_MAP_STYLE_URL_DARK` — optional dark style URL (default OpenFreeMap Dark)
+Use `.env.example` as the source of truth.
 
-Chat, translation, and speech still use their existing server-only Google/Gemini keys.
+### Required (feature-dependent)
+- `VITE_CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `GEMINI_API_KEY`
+- `GOOGLE_TRANSLATE_KEY`
+- `GOOGLE_TTS_KEY`
 
-## Usage policy
+### App URL
+- `VITE_PUBLIC_URL` (default: `http://localhost:5173`)
 
-Public Overpass and Photon endpoints are shared community infrastructure. This app:
+### Optional OSM/provider overrides
+- `OVERPASS_URL`
+- `PHOTON_URL`
+- `OSM_USER_AGENT`
+- `VITE_MAP_STYLE_URL`
+- `VITE_MAP_STYLE_URL_DARK`
 
-- sends **one** Overpass query per search (all categories together)
-- caches nearby/geocode/autocomplete results
-- debounces autocomplete and map-move discovery
-- cancels in-flight requests
-- rate-limits and retries with backoff
-- caps search radius and rejects huge viewports
+> Mapping no longer requires a browser Google Maps key.
 
-For production traffic, point `OVERPASS_URL` / `PHOTON_URL` at instances you operate or have permission to use.
+---
 
-## Known limitations
+## API routes
 
-- OpenStreetMap POIs often lack ratings, review counts, photos, and price levels. Ranking still runs; distance and open/closed status carry more weight when ratings are missing.
-- `opening_hours` is parsed for common OSM patterns. Seasonal/complex rules are treated as unknown rather than guessed.
-- “Get Directions” opens OpenStreetMap routing (OSRM via osm.org). It is not Google Maps turn-by-turn navigation, and there is no in-app route geometry overlay.
-- Public Overpass/Photon availability varies. Configure your own endpoints for production.
+- `POST /api/places` → nearby healthcare discovery
+- `POST /api/geocode` → forward/reverse geocoding
+- `POST /api/autocomplete` → address suggestions
+- `POST /api/chat` → assistant chat
+- `POST /api/translate` → translation
+- `POST /api/speech` → TTS/speech output
 
-## Deploy
+---
 
-Vercel settings are unchanged (`vercel.json` SPA rewrites). After deploy:
+## Deployment (Vercel)
 
-1. Remove `VITE_GOOGLE_MAPS_API_KEY` from the Vercel project if it is still set.
-2. Keep Clerk, Supabase, Gemini, Translate, and TTS secrets as they are.
-3. Optionally set `OVERPASS_URL`, `PHOTON_URL`, `OSM_USER_AGENT`, `VITE_MAP_STYLE_URL`, and `VITE_MAP_STYLE_URL_DARK`.
+This project is configured as a Vite app with SPA rewrites via `vercel.json`.
+
+Recommended deploy checklist:
+- configure all required secrets in Vercel project settings
+- keep OSM provider env values explicit for production traffic
+- ensure `OSM_USER_AGENT` identifies your app and contact URL
+
+---
+
+## Geolocation notes
+
+`Find Me` relies on browser geolocation permissions.
+
+If users report location failures:
+- verify site location permission is **Allow**
+- verify device-level location services are enabled
+- use HTTPS or localhost
+- avoid restricted in-app browsers when possible
+
+The app now falls back to raw coordinates when reverse geocoding is temporarily unavailable.
+
+---
+
+## Open data caveats
+
+OpenStreetMap-derived place data may have:
+- missing ratings/reviews/photos/price levels
+- inconsistent `opening_hours` quality
+- variable provider availability on public endpoints
+
+For reliable production scale, use provider infrastructure you control or have explicit quota/permission for.
